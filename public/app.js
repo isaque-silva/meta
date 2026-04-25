@@ -739,21 +739,29 @@ document.querySelectorAll('#filter-status .seg').forEach(b => {
     loadMetas();
   });
 });
-document.getElementById('filter-func').addEventListener('change', e => {
-  filterFunc = e.target.value; loadMetas();
+document.getElementById('filter-func').addEventListener('input', e => {
+  filterFunc = String(e.target.value || '').trim().toLowerCase();
+  loadMetas();
 });
 
 async function loadFuncSelects() {
   const funcs = await api('/api/funcionarios');
-  const sel = document.getElementById('filter-func');
-  sel.innerHTML = `<option value="">Todos os funcionários</option>` + funcs.map(f => `<option value="${f.id}">${escapeHtml(f.nome)}</option>`).join('');
+  const list = document.getElementById('filter-func-options');
+  if (!list) return;
+  list.innerHTML = funcs.map(f => `<option value="${escapeHtml(f.nome)}"></option>`).join('');
 }
 
 async function loadMetas() {
   const params = new URLSearchParams();
   if (filterStatus) params.set('status', filterStatus);
-  if (filterFunc) params.set('funcionario_id', filterFunc);
-  const rows = await api('/api/metas?' + params);
+  let rows = await api('/api/metas?' + params);
+  if (filterFunc) {
+    rows = rows.filter(m => {
+      const nome = String(m.funcionario_nome || '').toLowerCase();
+      const usuario = String(m.funcionario_usuario || '').toLowerCase();
+      return nome.includes(filterFunc) || usuario.includes(filterFunc);
+    });
+  }
 
   const tbody = document.getElementById('tbl-metas');
   tbody.innerHTML = rows.length ? rows.map(m => {
@@ -798,7 +806,6 @@ async function loadMetas() {
         <td>${m.status === 'fechada' ? resultChip || `<span class="chip chip-fechada">Fechada</span>` : `<span class="chip ${st.chip}">${st.label}</span>`}</td>
         <td style="text-align:right" onclick="event.stopPropagation()">
           ${m.status === 'aberta' ? `
-            <button class="btn btn-ghost btn-sm" onclick="deduzirMeta(${m.id})">Deduzir</button>
             ${canManageData() ? `<button class="btn btn-success btn-sm" onclick="fecharMeta(${m.id})">Fechar</button>` : ''}
           ` : `
             ${canManageData() ? `<button class="btn btn-ghost btn-sm" onclick="reabrirMeta(${m.id})">Reabrir</button>` : '<span class="muted">Fechada</span>'}
