@@ -3,47 +3,53 @@ version: "3.9"
 services:
   mysql:
     image: mysql:8.4
-    container_name: metas-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: metas_app
-      MYSQL_USER: metas
-      MYSQL_PASSWORD: metas123
-    ports:
-      - "3306:3306"
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-metas_app}
+      MYSQL_USER: ${MYSQL_USER:-metas}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-metas123}
+      TZ: ${TZ:-America/Sao_Paulo}
+    command: --default-authentication-plugin=mysql_native_password
     volumes:
       - metas_mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p${MYSQL_ROOT_PASSWORD:-root}"]
       interval: 10s
       timeout: 5s
       retries: 10
+    networks:
+      - metas_net
 
   metas-app:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: metas-app
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${APP_PORT:-3000}:3000"
     environment:
       NODE_ENV: production
       PORT: 3000
       DB_CLIENT: mysql
       MYSQL_HOST: mysql
-      MYSQL_PORT: 3306
-      MYSQL_DATABASE: metas_app
-      MYSQL_USER: metas
-      MYSQL_PASSWORD: metas123
-      AUTH_TOKEN_SECRET: change-this-in-production
-      AUTH_TOKEN_TTL_HOURS: 720
-      DEFAULT_ADMIN_USER: admin
-      DEFAULT_ADMIN_PASSWORD: admin123
+      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-metas_app}
+      MYSQL_USER: ${MYSQL_USER:-metas}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-metas123}
+      AUTH_TOKEN_SECRET: ${AUTH_TOKEN_SECRET:-change-this-in-production}
+      AUTH_TOKEN_TTL_HOURS: ${AUTH_TOKEN_TTL_HOURS:-720}
+      DEFAULT_ADMIN_USER: ${DEFAULT_ADMIN_USER:-admin}
+      DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-admin123}
+      TZ: ${TZ:-America/Sao_Paulo}
     depends_on:
       mysql:
         condition: service_healthy
+    networks:
+      - metas_net
 
 volumes:
   metas_mysql_data:
+
+networks:
+  metas_net:

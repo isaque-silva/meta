@@ -52,6 +52,10 @@ docker compose up -d --build
 
 A aplicação ficará em `http://localhost:3000`.
 
+No Dokploy, ao fazer deploy via `docker-compose.yml`, serão criados **2 containers juntos**:
+- `metas-app` (aplicação)
+- `mysql` (banco)
+
 ### Variáveis importantes
 
 - `DB_CLIENT` (use `mysql`)
@@ -66,6 +70,10 @@ A aplicação ficará em `http://localhost:3000`.
 - `DEFAULT_ADMIN_PASSWORD`
 
 O `docker-compose.yml` já sobe um serviço MySQL com volume persistente (`metas_mysql_data`).
+Para produção, sobrescreva principalmente:
+- `MYSQL_ROOT_PASSWORD`
+- `MYSQL_PASSWORD`
+- `AUTH_TOKEN_SECRET`
 
 ## 🔐 Autenticação
 
