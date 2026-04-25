@@ -329,7 +329,7 @@ body{
 .chip{
   display:inline-flex;align-items:center;gap:5px;
   padding:3px 9px;border-radius:999px;font-size:11.5px;font-weight:600;
-  border:1px solid transparent;
+  border:1px solid transparent;white-space:nowrap;
 }
 .chip::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor}
 .chip-ontrack{background:var(--success-50);color:var(--success);border-color:#a7f3d0}
@@ -339,6 +339,12 @@ body{
 .chip-atingida{background:var(--success-50);color:var(--success);border-color:#a7f3d0}
 .chip-parcial{background:var(--warn-50);color:var(--warn);border-color:#fde68a}
 .chip-nao_atingida{background:var(--danger-50);color:var(--danger);border-color:#fecaca}
+
+/* Metas: manter status em uma única linha */
+#tbl-metas td:nth-child(6),
+#tbl-metas th:nth-child(6){
+  white-space:nowrap;
+}
 
 .tag{
   display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;
