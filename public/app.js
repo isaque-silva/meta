@@ -1087,7 +1087,7 @@ window.verMeta = async id => {
                     </div>
                     <div class="meta-mes-stat" style="border-left:3px solid var(--success)">
                       <span class="lbl">Variável</span>
-                      <span class="val">${ganhoVar > 0 ? (isOperador() ? `${qtdVarMes} variável(is)` : `+${fmtBRL(ganhoVar)}`) : '—'}</span>
+                      <span class="val">${ganhoVar > 0 ? (isOperador() ? `${qtdVarMes}` : `+${fmtBRL(ganhoVar)}`) : '—'}</span>
                     </div>
                     <div class="meta-mes-stat ded">
                       <span class="lbl">Deduzido</span>
@@ -1130,7 +1130,7 @@ window.verMeta = async id => {
   const variaveis = Array.isArray(m.variaveis) ? m.variaveis : (Array.isArray(m.melhorias) ? m.melhorias : []);
   const variaveisHtml = variaveis.length
     ? variaveis.map(mx => {
-        const valorTxt = isOperador() ? `${mx.quantidade || 0} variável(is)` : `+${fmtBRL(mx.valor_total || 0)}`;
+        const valorTxt = isOperador() ? `${mx.quantidade || 0}` : `+${fmtBRL(mx.valor_total || 0)}`;
         const subMes = (mx.mes_ano_variavel || mx.mes_ano_melhoria) ? ` · ${mx.mes_ano_variavel || mx.mes_ano_melhoria}` : '';
         return `
       <div class="stack-item">
@@ -1167,7 +1167,7 @@ window.verMeta = async id => {
       <div class="detail-row"><span class="k">Valor-alvo</span><span class="v">${isOperador() ? '100%' : fmtBRL(m.valor_inicial)}</span></div>
       <div class="detail-row"><span class="k">Saldo atual</span><span class="v">${isOperador() ? fmtPctGlobal(pct) : fmtBRL(m.valor_atual)}</span></div>
       <div class="detail-row"><span class="k">Total deduzido</span><span class="v" style="color:var(--danger)">${isOperador() ? fmtPctGlobal(dedPctTotal) : fmtBRL(m.valor_inicial - m.valor_atual)}</span></div>
-      <div class="detail-row"><span class="k">Ganho variável no período</span><span class="v" style="color:var(--success)">${isOperador() ? `${Number(m.total_variaveis || m.total_melhorias || 0)} variável(is)` : `+${fmtBRL(Number(m.total_variavel || 0))}`}</span></div>
+      <div class="detail-row"><span class="k">Ganho variável no período</span><span class="v" style="color:var(--success)">${isOperador() ? `${Number(m.total_variaveis || m.total_melhorias || 0)}` : `+${fmtBRL(Number(m.total_variavel || 0))}`}</span></div>
       ${m.data_fechamento ? `<div class="detail-row"><span class="k">Fechada em</span><span class="v">${fmtDateTime(m.data_fechamento)}</span></div>` : ''}
       ${m.observacao_fechamento ? `<div class="detail-row"><span class="k">Observação</span><span class="v">${escapeHtml(m.observacao_fechamento)}</span></div>` : ''}
     </div>
