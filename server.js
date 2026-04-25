@@ -180,6 +180,7 @@ function routeNeedsGestor(req) {
   if (p === '/metas' && req.method === 'POST') return true;
   if (p === '/metas/lote' && req.method === 'POST') return true;
   if (/^\/metas\/\d+$/.test(p) && (req.method === 'PUT' || req.method === 'DELETE')) return true;
+  if (/^\/metas\/\d+\/melhorias$/.test(p) && req.method === 'POST') return true;
   if (/^\/metas\/\d+\/(fechar|reabrir)$/.test(p) && req.method === 'POST') return true;
   if (/^\/deducoes\/\d+$/.test(p) && req.method === 'DELETE') return true;
   if (p === '/fechamentos' && req.method === 'POST') return true;
@@ -196,6 +197,7 @@ function permissionKeyForRoute(req) {
   if (p === '/metas' && req.method === 'POST') return 'meta_gerar';
   if (p === '/metas/lote' && req.method === 'POST') return 'meta_gerar';
   if (/^\/metas\/\d+$/.test(p) && req.method === 'DELETE') return 'meta_excluir';
+  if (/^\/metas\/\d+\/melhorias$/.test(p) && req.method === 'POST') return 'meta_gerar';
   if (/^\/metas\/\d+\/deducoes$/.test(p) && req.method === 'POST') return 'deducao_gerar';
   if (p === '/deducoes/lote/preview' && req.method === 'POST') return 'deducao_gerar';
   if (p === '/deducoes/lote/aplicar' && req.method === 'POST') return 'deducao_gerar';
@@ -816,17 +818,41 @@ app.get('/api/metas/:id', (req, res) => {
     ORDER BY d.criado_em DESC
   `).all(req.params.id);
 
+  const melhorias = db.prepare(`
+    SELECT mm.*,
+           mmes.data_mes AS data_mes_melhoria,
+           strftime('%m/%Y', mmes.data_mes) AS mes_ano_melhoria
+    FROM meta_melhorias mm
+    LEFT JOIN meta_meses mmes
+      ON mmes.meta_id = mm.meta_id
+     AND mmes.mes_offset = mm.mes_offset
+    WHERE mm.meta_id = ?
+    ORDER BY mm.criado_em DESC
+  `).all(req.params.id);
+
   // Breakdown por mês com total deduzido por mês
   const mesesRows = db.prepare(`
     SELECT mm.*,
       (SELECT COALESCE(SUM(valor),0) FROM deducoes d WHERE d.meta_id = mm.meta_id AND d.mes_offset = mm.mes_offset) AS valor_deduzido,
-      (SELECT COUNT(*)             FROM deducoes d WHERE d.meta_id = mm.meta_id AND d.mes_offset = mm.mes_offset) AS total_deducoes
+      (SELECT COUNT(*)             FROM deducoes d WHERE d.meta_id = mm.meta_id AND d.mes_offset = mm.mes_offset) AS total_deducoes,
+      (SELECT COALESCE(SUM(valor_total),0) FROM meta_melhorias mx WHERE mx.meta_id = mm.meta_id AND mx.mes_offset = mm.mes_offset) AS valor_melhorias,
+      (SELECT COALESCE(SUM(quantidade),0)  FROM meta_melhorias mx WHERE mx.meta_id = mm.meta_id AND mx.mes_offset = mm.mes_offset) AS total_melhorias
     FROM meta_meses mm
     WHERE mm.meta_id = ?
     ORDER BY mm.mes_offset
   `).all(req.params.id);
 
-  res.json({ ...meta, deducoes, meses: mesesRows });
+  const totalVariavel = melhorias.reduce((s, x) => s + (Number(x.valor_total) || 0), 0);
+  const totalMelhorias = melhorias.reduce((s, x) => s + (Number(x.quantidade) || 0), 0);
+
+  res.json({
+    ...meta,
+    deducoes,
+    melhorias,
+    total_variavel: totalVariavel,
+    total_melhorias: totalMelhorias,
+    meses: mesesRows
+  });
 });
 
 app.post('/api/metas', (req, res) => {
@@ -1424,6 +1450,80 @@ app.delete('/api/deducoes/:id', (req, res) => {
     ok: true,
     removida: ded,
     meta: db.prepare('SELECT * FROM metas WHERE id = ?').get(meta.id)
+  });
+});
+
+// Lança ganho variável por melhoria dentro da meta/período.
+app.post('/api/metas/:id/melhorias', (req, res) => {
+  const meta = db.prepare('SELECT * FROM metas WHERE id = ?').get(req.params.id);
+  if (!meta) return res.status(404).json({ error: 'Meta não encontrada' });
+  if (meta.status !== 'aberta') {
+    return res.status(400).json({ error: 'Só é possível lançar melhoria em metas abertas' });
+  }
+  if (metaJaTeveFechamento(meta)) {
+    return res.status(400).json({
+      error: 'Esta meta já possui fechamento executado. Remova o fechamento atual para poder editar ou reabrir a meta.'
+    });
+  }
+
+  const quantidade = Math.max(1, Math.floor(Number(req.body?.quantidade) || 1));
+  const valorUnitario = Number(req.body?.valor_unitario ?? 80);
+  if (!(valorUnitario > 0)) {
+    return res.status(400).json({ error: 'Informe um valor unitário válido para a melhoria' });
+  }
+
+  let mesOffset = Number.isFinite(Number(req.body?.mes_offset)) ? Number(req.body?.mes_offset) : null;
+  if (mesOffset == null && req.body?.mes_ano) {
+    mesOffset = resolverMesOffsetPorMesAno(meta.id, req.body.mes_ano);
+  }
+  if (mesOffset == null) {
+    const hoje = new Date();
+    const ym = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
+    const mRef = db.prepare(`
+      SELECT mes_offset
+      FROM meta_meses
+      WHERE meta_id = ? AND strftime('%Y-%m', data_mes) = ?
+      LIMIT 1
+    `).get(meta.id, ym);
+    mesOffset = mRef ? Number(mRef.mes_offset) : 0;
+  }
+
+  const mes = db.prepare('SELECT * FROM meta_meses WHERE meta_id = ? AND mes_offset = ?').get(meta.id, mesOffset);
+  if (!mes) {
+    return res.status(400).json({ error: 'Mês da melhoria inválido para esta meta' });
+  }
+
+  const valorTotal = Math.round((quantidade * valorUnitario) * 100) / 100;
+  const motivo = String(req.body?.motivo || '').trim() || null;
+
+  const tx = db.transaction(() => {
+    db.prepare(`
+      INSERT INTO meta_melhorias (meta_id, funcionario_id, mes_offset, quantidade, valor_unitario, valor_total, motivo)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(meta.id, meta.funcionario_id, mesOffset, quantidade, valorUnitario, valorTotal, motivo);
+
+    const novoInicialMes = Math.round((Number(mes.valor_inicial) + valorTotal) * 100) / 100;
+    const novoAtualMes = Math.round((Number(mes.valor_atual) + valorTotal) * 100) / 100;
+    db.prepare('UPDATE meta_meses SET valor_inicial = ?, valor_atual = ? WHERE id = ?')
+      .run(novoInicialMes, novoAtualMes, mes.id);
+
+    sincronizarTotaisMeta(meta.id);
+  });
+  tx();
+
+  const metaAtualizada = db.prepare('SELECT * FROM metas WHERE id = ?').get(meta.id);
+  const mesAtualizado = db.prepare('SELECT * FROM meta_meses WHERE id = ?').get(mes.id);
+  res.json({
+    ok: true,
+    meta: metaAtualizada,
+    mes: mesAtualizado,
+    melhoria: {
+      quantidade,
+      valor_unitario: valorUnitario,
+      valor_total: valorTotal,
+      mes_offset: mesOffset,
+      motivo
+    }
   });
 });
 

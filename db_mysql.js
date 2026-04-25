@@ -152,6 +152,22 @@ CREATE TABLE IF NOT EXISTS deducoes (
     FOREIGN KEY (funcionario_id) REFERENCES funcionarios(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS meta_melhorias (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  meta_id INT NOT NULL,
+  funcionario_id INT NOT NULL,
+  mes_offset INT NOT NULL DEFAULT 0,
+  quantidade INT NOT NULL DEFAULT 1,
+  valor_unitario DECIMAL(12,2) NOT NULL,
+  valor_total DECIMAL(12,2) NOT NULL,
+  motivo TEXT NULL,
+  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_melhorias_meta
+    FOREIGN KEY (meta_id) REFERENCES metas(id) ON DELETE CASCADE,
+  CONSTRAINT fk_melhorias_funcionario
+    FOREIGN KEY (funcionario_id) REFERENCES funcionarios(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS fechamentos (
   id INT AUTO_INCREMENT PRIMARY KEY,
   ano INT NOT NULL,
@@ -208,6 +224,7 @@ function createIndexIfMissing(table, indexName, expression) {
 createIndexIfMissing('metas', 'idx_metas_func', 'funcionario_id');
 createIndexIfMissing('metas', 'idx_metas_status', 'status');
 createIndexIfMissing('deducoes', 'idx_ded_meta', 'meta_id');
+createIndexIfMissing('meta_melhorias', 'idx_melh_meta', 'meta_id');
 createIndexIfMissing('fechamento_itens', 'idx_fi_fech', 'fechamento_id');
 createIndexIfMissing('meta_meses', 'idx_mm_meta', 'meta_id');
 createIndexIfMissing('usuarios', 'idx_users_usuario', 'usuario');
