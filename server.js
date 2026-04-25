@@ -180,7 +180,7 @@ function routeNeedsGestor(req) {
   if (p === '/metas' && req.method === 'POST') return true;
   if (p === '/metas/lote' && req.method === 'POST') return true;
   if (/^\/metas\/\d+$/.test(p) && (req.method === 'PUT' || req.method === 'DELETE')) return true;
-  if (/^\/metas\/\d+\/melhorias$/.test(p) && req.method === 'POST') return true;
+  if (/^\/metas\/\d+\/(melhorias|variaveis)$/.test(p) && req.method === 'POST') return true;
   if (/^\/metas\/\d+\/(fechar|reabrir)$/.test(p) && req.method === 'POST') return true;
   if (/^\/deducoes\/\d+$/.test(p) && req.method === 'DELETE') return true;
   if (p === '/fechamentos' && req.method === 'POST') return true;
@@ -197,7 +197,7 @@ function permissionKeyForRoute(req) {
   if (p === '/metas' && req.method === 'POST') return 'meta_gerar';
   if (p === '/metas/lote' && req.method === 'POST') return 'meta_gerar';
   if (/^\/metas\/\d+$/.test(p) && req.method === 'DELETE') return 'meta_excluir';
-  if (/^\/metas\/\d+\/melhorias$/.test(p) && req.method === 'POST') return 'meta_gerar';
+  if (/^\/metas\/\d+\/(melhorias|variaveis)$/.test(p) && req.method === 'POST') return 'meta_gerar';
   if (/^\/metas\/\d+\/deducoes$/.test(p) && req.method === 'POST') return 'deducao_gerar';
   if (p === '/deducoes/lote/preview' && req.method === 'POST') return 'deducao_gerar';
   if (p === '/deducoes/lote/aplicar' && req.method === 'POST') return 'deducao_gerar';
@@ -818,10 +818,10 @@ app.get('/api/metas/:id', (req, res) => {
     ORDER BY d.criado_em DESC
   `).all(req.params.id);
 
-  const melhorias = db.prepare(`
+  const variaveis = db.prepare(`
     SELECT mm.*,
-           mmes.data_mes AS data_mes_melhoria,
-           strftime('%m/%Y', mmes.data_mes) AS mes_ano_melhoria
+           mmes.data_mes AS data_mes_variavel,
+           strftime('%m/%Y', mmes.data_mes) AS mes_ano_variavel
     FROM meta_melhorias mm
     LEFT JOIN meta_meses mmes
       ON mmes.meta_id = mm.meta_id
@@ -835,6 +835,8 @@ app.get('/api/metas/:id', (req, res) => {
     SELECT mm.*,
       (SELECT COALESCE(SUM(valor),0) FROM deducoes d WHERE d.meta_id = mm.meta_id AND d.mes_offset = mm.mes_offset) AS valor_deduzido,
       (SELECT COUNT(*)             FROM deducoes d WHERE d.meta_id = mm.meta_id AND d.mes_offset = mm.mes_offset) AS total_deducoes,
+      (SELECT COALESCE(SUM(valor_total),0) FROM meta_melhorias mx WHERE mx.meta_id = mm.meta_id AND mx.mes_offset = mm.mes_offset) AS valor_variaveis,
+      (SELECT COALESCE(SUM(quantidade),0)  FROM meta_melhorias mx WHERE mx.meta_id = mm.meta_id AND mx.mes_offset = mm.mes_offset) AS total_variaveis,
       (SELECT COALESCE(SUM(valor_total),0) FROM meta_melhorias mx WHERE mx.meta_id = mm.meta_id AND mx.mes_offset = mm.mes_offset) AS valor_melhorias,
       (SELECT COALESCE(SUM(quantidade),0)  FROM meta_melhorias mx WHERE mx.meta_id = mm.meta_id AND mx.mes_offset = mm.mes_offset) AS total_melhorias
     FROM meta_meses mm
@@ -842,15 +844,17 @@ app.get('/api/metas/:id', (req, res) => {
     ORDER BY mm.mes_offset
   `).all(req.params.id);
 
-  const totalVariavel = melhorias.reduce((s, x) => s + (Number(x.valor_total) || 0), 0);
-  const totalMelhorias = melhorias.reduce((s, x) => s + (Number(x.quantidade) || 0), 0);
+  const totalVariavel = variaveis.reduce((s, x) => s + (Number(x.valor_total) || 0), 0);
+  const totalVariaveis = variaveis.reduce((s, x) => s + (Number(x.quantidade) || 0), 0);
 
   res.json({
     ...meta,
     deducoes,
-    melhorias,
+    variaveis,
+    melhorias: variaveis,
     total_variavel: totalVariavel,
-    total_melhorias: totalMelhorias,
+    total_variaveis: totalVariaveis,
+    total_melhorias: totalVariaveis,
     meses: mesesRows
   });
 });
@@ -1453,12 +1457,11 @@ app.delete('/api/deducoes/:id', (req, res) => {
   });
 });
 
-// Lança ganho variável por melhoria dentro da meta/período.
-app.post('/api/metas/:id/melhorias', (req, res) => {
+function registrarVariavelMeta(req, res) {
   const meta = db.prepare('SELECT * FROM metas WHERE id = ?').get(req.params.id);
   if (!meta) return res.status(404).json({ error: 'Meta não encontrada' });
   if (meta.status !== 'aberta') {
-    return res.status(400).json({ error: 'Só é possível lançar melhoria em metas abertas' });
+    return res.status(400).json({ error: 'Só é possível lançar variável em metas abertas' });
   }
   if (metaJaTeveFechamento(meta)) {
     return res.status(400).json({
@@ -1469,7 +1472,7 @@ app.post('/api/metas/:id/melhorias', (req, res) => {
   const quantidade = Math.max(1, Math.floor(Number(req.body?.quantidade) || 1));
   const valorUnitario = Number(req.body?.valor_unitario ?? 80);
   if (!(valorUnitario > 0)) {
-    return res.status(400).json({ error: 'Informe um valor unitário válido para a melhoria' });
+    return res.status(400).json({ error: 'Informe um valor unitário válido para a variável' });
   }
 
   let mesOffset = Number.isFinite(Number(req.body?.mes_offset)) ? Number(req.body?.mes_offset) : null;
@@ -1490,7 +1493,7 @@ app.post('/api/metas/:id/melhorias', (req, res) => {
 
   const mes = db.prepare('SELECT * FROM meta_meses WHERE meta_id = ? AND mes_offset = ?').get(meta.id, mesOffset);
   if (!mes) {
-    return res.status(400).json({ error: 'Mês da melhoria inválido para esta meta' });
+    return res.status(400).json({ error: 'Mês da variável inválido para esta meta' });
   }
 
   const valorTotal = Math.round((quantidade * valorUnitario) * 100) / 100;
@@ -1517,15 +1520,25 @@ app.post('/api/metas/:id/melhorias', (req, res) => {
     ok: true,
     meta: metaAtualizada,
     mes: mesAtualizado,
+    variavel: {
+      quantidade,
+      valor_unitario: valorUnitario,
+      valor_total: valorTotal,
+      mes_offset: mesOffset,
+      motivo
+    },
     melhoria: {
       quantidade,
       valor_unitario: valorUnitario,
       valor_total: valorTotal,
       mes_offset: mesOffset,
       motivo
-    }
+    },
   });
-});
+}
+
+app.post('/api/metas/:id/variaveis', registrarVariavelMeta);
+app.post('/api/metas/:id/melhorias', registrarVariavelMeta);
 
 // Listar todas deduções
 app.get('/api/deducoes', (req, res) => {

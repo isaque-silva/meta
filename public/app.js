@@ -1050,8 +1050,8 @@ window.verMeta = async id => {
               const alvo = Number(mm.valor_inicial) || 0;
               const saldo = Number(mm.valor_atual) || 0;
               const ded = Math.max(0, Number(mm.valor_deduzido || 0));
-              const ganhoVar = Math.max(0, Number(mm.valor_melhorias || 0));
-              const qtdMelhMes = Math.max(0, Number(mm.total_melhorias || 0));
+              const ganhoVar = Math.max(0, Number(mm.valor_melhorias || mm.valor_variaveis || 0));
+              const qtdVarMes = Math.max(0, Number(mm.total_variaveis || mm.total_melhorias || 0));
               const nDed = Number(mm.total_deducoes || 0);
               const idx = Number(mm.mes_offset);
               const ordem = Number.isFinite(idx) ? idx + 1 : null;
@@ -1085,7 +1085,7 @@ window.verMeta = async id => {
                     </div>
                     <div class="meta-mes-stat" style="border-left:3px solid var(--success)">
                       <span class="lbl">Variável</span>
-                      <span class="val">${ganhoVar > 0 ? (isOperador() ? `${qtdMelhMes} melhoria(s)` : `+${fmtBRL(ganhoVar)}`) : '—'}</span>
+                      <span class="val">${ganhoVar > 0 ? (isOperador() ? `${qtdVarMes} variável(is)` : `+${fmtBRL(ganhoVar)}`) : '—'}</span>
                     </div>
                     <div class="meta-mes-stat ded">
                       <span class="lbl">Deduzido</span>
@@ -1125,20 +1125,20 @@ window.verMeta = async id => {
       }).join('')
     : emptyState('Nenhuma dedução até o momento');
 
-  const melhorias = Array.isArray(m.melhorias) ? m.melhorias : [];
-  const melhoriasHtml = melhorias.length
-    ? melhorias.map(mx => {
-        const valorTxt = isOperador() ? `${mx.quantidade || 0} melhoria(s)` : `+${fmtBRL(mx.valor_total || 0)}`;
-        const subMes = mx.mes_ano_melhoria ? ` · ${mx.mes_ano_melhoria}` : '';
+  const variaveis = Array.isArray(m.variaveis) ? m.variaveis : (Array.isArray(m.melhorias) ? m.melhorias : []);
+  const variaveisHtml = variaveis.length
+    ? variaveis.map(mx => {
+        const valorTxt = isOperador() ? `${mx.quantidade || 0} variável(is)` : `+${fmtBRL(mx.valor_total || 0)}`;
+        const subMes = (mx.mes_ano_variavel || mx.mes_ano_melhoria) ? ` · ${mx.mes_ano_variavel || mx.mes_ano_melhoria}` : '';
         return `
       <div class="stack-item">
         <div class="body">
-          <div class="title"><span class="tag" style="background:var(--success-50);color:var(--success);border:1px solid #a7f3d0">Melhoria</span> ${valorTxt}</div>
+          <div class="title"><span class="tag" style="background:var(--success-50);color:var(--success);border:1px solid #a7f3d0">Variável</span> ${valorTxt}</div>
           <div class="sub">${escapeHtml(mx.motivo || 'Sem descrição')}${subMes} · ${fmtDateTime(mx.criado_em)}</div>
         </div>
       </div>`;
       }).join('')
-    : emptyState('Nenhuma melhoria variável registrada até o momento');
+    : emptyState('Nenhum ganho variável registrado até o momento');
 
   openDrawer(m.titulo, `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
@@ -1165,7 +1165,7 @@ window.verMeta = async id => {
       <div class="detail-row"><span class="k">Valor-alvo</span><span class="v">${isOperador() ? '100%' : fmtBRL(m.valor_inicial)}</span></div>
       <div class="detail-row"><span class="k">Saldo atual</span><span class="v">${isOperador() ? fmtPctGlobal(pct) : fmtBRL(m.valor_atual)}</span></div>
       <div class="detail-row"><span class="k">Total deduzido</span><span class="v" style="color:var(--danger)">${isOperador() ? fmtPctGlobal(dedPctTotal) : fmtBRL(m.valor_inicial - m.valor_atual)}</span></div>
-      <div class="detail-row"><span class="k">Ganho variável no período</span><span class="v" style="color:var(--success)">${isOperador() ? `${Number(m.total_melhorias || 0)} melhoria(s)` : `+${fmtBRL(Number(m.total_variavel || 0))}`}</span></div>
+      <div class="detail-row"><span class="k">Ganho variável no período</span><span class="v" style="color:var(--success)">${isOperador() ? `${Number(m.total_variaveis || m.total_melhorias || 0)} variável(is)` : `+${fmtBRL(Number(m.total_variavel || 0))}`}</span></div>
       ${m.data_fechamento ? `<div class="detail-row"><span class="k">Fechada em</span><span class="v">${fmtDateTime(m.data_fechamento)}</span></div>` : ''}
       ${m.observacao_fechamento ? `<div class="detail-row"><span class="k">Observação</span><span class="v">${escapeHtml(m.observacao_fechamento)}</span></div>` : ''}
     </div>
@@ -1176,8 +1176,8 @@ window.verMeta = async id => {
     </div>
 
     <div class="drawer-section">
-      <h4>Ganhos variáveis (${melhorias.length})</h4>
-      <div class="stack">${melhoriasHtml}</div>
+      <h4>Ganhos variáveis (${variaveis.length})</h4>
+      <div class="stack">${variaveisHtml}</div>
     </div>
 
     <div class="drawer-section">
@@ -1187,7 +1187,7 @@ window.verMeta = async id => {
 
     <div class="drawer-actions">
       ${m.status === 'aberta' ? `
-        ${canCreateMeta() ? `<button class="btn btn-success" onclick="registrarMelhoriaMeta(${m.id})">Registrar melhoria</button>` : ''}
+        ${canCreateMeta() ? `<button class="btn btn-success" onclick="registrarVariavelMeta(${m.id})">Registrar variável</button>` : ''}
         <button class="btn btn-primary" onclick="deduzirMeta(${m.id})">Registrar dedução</button>
         ${canManageData() ? `<button class="btn btn-success" onclick="fecharMeta(${m.id})">Fechar trimestre</button>` : ''}
       ` : `
@@ -1198,10 +1198,10 @@ window.verMeta = async id => {
   `);
 };
 
-window.registrarMelhoriaMeta = async id => {
-  if (!canCreateMeta()) return toast('Sem permissão para registrar melhoria', 'error');
+window.registrarVariavelMeta = async id => {
+  if (!canCreateMeta()) return toast('Sem permissão para registrar variável', 'error');
   const m = await api(`/api/metas/${id}`);
-  if (m.status !== 'aberta') return toast('Só é possível lançar melhoria em metas abertas', 'error');
+  if (m.status !== 'aberta') return toast('Só é possível lançar variável em metas abertas', 'error');
 
   const meses = Array.isArray(m.meses) ? m.meses : [];
   if (!meses.length) return toast('Esta meta não possui meses configurados', 'error');
@@ -1223,21 +1223,21 @@ window.registrarMelhoriaMeta = async id => {
     return `<option value="${off}"${sel}>Mês ${off + 1} · ${mesLabelCurto(mm.data_mes)}</option>`;
   }).join('');
 
-  openDrawer('Registrar melhoria variável', `
+  openDrawer('Registrar meta variável', `
     <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:14px;font-size:12.5px">
       <b>${escapeHtml(m.titulo)}</b> <span class="muted">· ${escapeHtml(m.funcionario_nome)}</span>
     </div>
     <div class="field">
-      <label>Mês da melhoria</label>
+      <label>Mês da variável</label>
       <select id="mx-mes" class="select" style="width:100%">${opcoesMes}</select>
     </div>
     <div class="form-grid-2">
       <div class="field">
-        <label>Quantidade de melhorias</label>
+        <label>Quantidade de variáveis</label>
         <input id="mx-qtd" type="number" min="1" step="1" value="1"/>
       </div>
       <div class="field">
-        <label>Valor por melhoria (R$)</label>
+        <label>Valor por variável (R$)</label>
         <input id="mx-unit" type="number" min="0.01" step="0.01" value="80"/>
       </div>
     </div>
@@ -1249,7 +1249,7 @@ window.registrarMelhoriaMeta = async id => {
       <input id="mx-motivo" placeholder="Ex: Nova automação criada no sistema"/>
     </div>
     <div class="drawer-actions">
-      <button class="btn btn-success" id="mx-save">Confirmar ganho variável</button>
+      <button class="btn btn-success" id="mx-save">Confirmar variável</button>
       <button class="btn btn-ghost" onclick="closeDrawer()">Cancelar</button>
     </div>
   `);
@@ -1273,7 +1273,7 @@ window.registrarMelhoriaMeta = async id => {
     if (!(valor_unitario > 0)) return toast('Informe um valor unitário válido', 'error');
     const mes_offset = Number(document.getElementById('mx-mes').value);
     try {
-      await api(`/api/metas/${id}/melhorias`, {
+      await api(`/api/metas/${id}/variaveis`, {
         method: 'POST',
         body: JSON.stringify({
           quantidade,
@@ -1282,7 +1282,7 @@ window.registrarMelhoriaMeta = async id => {
           motivo: document.getElementById('mx-motivo').value
         })
       });
-      toast('Melhoria variável registrada');
+      toast('Variável registrada');
       await loadMetas();
       await loadDashboard();
       await verMeta(id);
@@ -1291,6 +1291,8 @@ window.registrarMelhoriaMeta = async id => {
     }
   };
 };
+
+window.registrarMelhoriaMeta = window.registrarVariavelMeta;
 
 window.deduzirMeta = async id => {
   const m = await api(`/api/metas/${id}`);
