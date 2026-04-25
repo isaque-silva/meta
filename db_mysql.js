@@ -186,14 +186,30 @@ CREATE TABLE IF NOT EXISTS fechamento_itens (
   CONSTRAINT fk_fechamento_itens_fech
     FOREIGN KEY (fechamento_id) REFERENCES fechamentos(id) ON DELETE CASCADE
 );
-
-CREATE INDEX idx_metas_func ON metas(funcionario_id);
-CREATE INDEX idx_metas_status ON metas(status);
-CREATE INDEX idx_ded_meta ON deducoes(meta_id);
-CREATE INDEX idx_fi_fech ON fechamento_itens(fechamento_id);
-CREATE INDEX idx_mm_meta ON meta_meses(meta_id);
-CREATE INDEX idx_users_usuario ON usuarios(usuario);
 `);
+
+function indexExists(table, indexName) {
+  const rows = query(
+    `SELECT 1
+     FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ?
+     LIMIT 1`,
+    [MYSQL_DATABASE, table, indexName]
+  );
+  return Array.isArray(rows) && rows.length > 0;
+}
+
+function createIndexIfMissing(table, indexName, expression) {
+  if (indexExists(table, indexName)) return;
+  query(`CREATE INDEX ${indexName} ON ${table}(${expression})`);
+}
+
+createIndexIfMissing('metas', 'idx_metas_func', 'funcionario_id');
+createIndexIfMissing('metas', 'idx_metas_status', 'status');
+createIndexIfMissing('deducoes', 'idx_ded_meta', 'meta_id');
+createIndexIfMissing('fechamento_itens', 'idx_fi_fech', 'fechamento_id');
+createIndexIfMissing('meta_meses', 'idx_mm_meta', 'meta_id');
+createIndexIfMissing('usuarios', 'idx_users_usuario', 'usuario');
 
 if (!colExists('funcionarios', 'valor_meta_mensal')) query('ALTER TABLE funcionarios ADD COLUMN valor_meta_mensal DECIMAL(12,2) NOT NULL DEFAULT 0');
 if (!colExists('funcionarios', 'unidade')) query('ALTER TABLE funcionarios ADD COLUMN unidade VARCHAR(255) NULL');
