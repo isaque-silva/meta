@@ -430,6 +430,23 @@
           <button class="btn btn-primary" id="btn-salvar-config-meta">Salvar configuração</button>
         </div>
       </div>
+
+      <div class="card" style="max-width:760px;margin-top:14px">
+        <div class="field">
+          <label>Chave fixa para API (integração)</label>
+          <input id="cfg-api-token" type="password" placeholder="Defina uma chave fixa para usar na API"/>
+          <small class="muted" id="cfg-api-token-status" style="display:block;margin-top:6px;font-size:12px">
+            Status: não configurado
+          </small>
+          <small class="muted" style="display:block;margin-top:6px;font-size:12px">
+            Uso: envie em <code>Authorization: Bearer SUA_CHAVE</code> ou <code>x-api-key: SUA_CHAVE</code> no endpoint de dedução.
+          </small>
+        </div>
+        <div class="drawer-actions" style="margin-top:14px">
+          <button class="btn btn-primary" id="btn-salvar-config-api-token">Salvar chave</button>
+          <button class="btn btn-ghost" id="btn-limpar-config-api-token">Remover chave</button>
+        </div>
+      </div>
     </section>
 
   </div>

@@ -159,6 +159,16 @@ function getMetaPeriodMonths() {
   return META_PERIOD_TYPES[getMetaPeriodType()] || 3;
 }
 
+function getFixedApiToken() {
+  const row = db.prepare("SELECT valor FROM configuracoes WHERE chave = 'api_token_fixo'").get();
+  const token = String(row?.valor || '').trim();
+  return token || null;
+}
+
+function isApiTokenAllowedRoute(req) {
+  return req.path === '/deducoes' && req.method === 'POST';
+}
+
 function hasAnyAccess(userType, allowedTypes) {
   return allowedTypes.includes(userType);
 }
@@ -202,7 +212,19 @@ app.use('/api', (req, res, next) => {
   const auth = req.headers.authorization || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
   const payload = verifyToken(token);
-  if (!payload?.userId) return res.status(401).json({ error: 'Não autenticado' });
+  if (!payload?.userId) {
+    const apiTokenHeader = req.headers['x-api-key'] || req.headers['x-api-token'] || token;
+    const apiToken = String(apiTokenHeader || '').trim();
+    const fixed = getFixedApiToken();
+    const a = Buffer.from(apiToken);
+    const b = Buffer.from(fixed || '');
+    const same = a.length === b.length && a.length > 0 && crypto.timingSafeEqual(a, b);
+    if (same && isApiTokenAllowedRoute(req)) {
+      req.apiAuth = { fixed_token: true };
+      return next();
+    }
+    return res.status(401).json({ error: 'Não autenticado' });
+  }
 
   const user = db.prepare(`
     SELECT id, nome, usuario, tipo_acesso, ativo, permissoes, funcionario_id, criado_em
@@ -466,6 +488,44 @@ app.put('/api/configuracoes/meta-periodo', (req, res) => {
       atualizado_em=datetime('now','localtime')
   `).run(tipo);
   res.json({ ok: true, tipo_meta_periodo: tipo, meses: META_PERIOD_TYPES[tipo] });
+});
+
+app.get('/api/configuracoes/api-token', (req, res) => {
+  if (req.user?.tipo_acesso !== 'admin') {
+    return res.status(403).json({ error: 'Apenas administradores podem visualizar essa configuração' });
+  }
+  const token = getFixedApiToken();
+  const masked = token
+    ? `${token.slice(0, 4)}${'*'.repeat(Math.max(0, token.length - 8))}${token.slice(-4)}`
+    : null;
+  res.json({
+    has_token: !!token,
+    token_masked: masked,
+  });
+});
+
+app.put('/api/configuracoes/api-token', (req, res) => {
+  if (req.user?.tipo_acesso !== 'admin') {
+    return res.status(403).json({ error: 'Apenas administradores podem alterar essa configuração' });
+  }
+  const raw = String(req.body?.api_token_fixo || '').trim();
+  if (raw && raw.length < 12) {
+    return res.status(400).json({ error: 'A chave fixa deve ter pelo menos 12 caracteres' });
+  }
+
+  if (!raw) {
+    db.prepare('DELETE FROM configuracoes WHERE chave = ?').run('api_token_fixo');
+    return res.json({ ok: true, has_token: false });
+  }
+
+  db.prepare(`
+    INSERT INTO configuracoes (chave, valor, atualizado_em)
+    VALUES ('api_token_fixo', ?, datetime('now','localtime'))
+    ON CONFLICT(chave) DO UPDATE SET
+      valor=excluded.valor,
+      atualizado_em=datetime('now','localtime')
+  `).run(raw);
+  res.json({ ok: true, has_token: true });
 });
 
 app.get('/api/usuarios', (req, res) => {

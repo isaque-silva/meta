@@ -1832,9 +1832,26 @@ async function loadConfiguracoes() {
     goto('dashboard');
     return toast('Somente administradores podem acessar configurações', 'error');
   }
-  await loadMetaConfig();
+  await Promise.all([loadMetaConfig(), loadApiTokenConfig()]);
   const el = document.getElementById('cfg-meta-periodo');
   if (el) el.value = metaConfig.tipo_meta_periodo;
+}
+
+async function loadApiTokenConfig() {
+  const statusEl = document.getElementById('cfg-api-token-status');
+  const inputEl = document.getElementById('cfg-api-token');
+  try {
+    const cfg = await api('/api/configuracoes/api-token');
+    if (statusEl) {
+      statusEl.textContent = cfg.has_token
+        ? `Status: configurado (${cfg.token_masked || 'chave ativa'})`
+        : 'Status: não configurado';
+    }
+    if (inputEl) inputEl.value = '';
+  } catch (e) {
+    if (statusEl) statusEl.textContent = 'Status: não foi possível carregar';
+    throw e;
+  }
 }
 
 document.getElementById('btn-salvar-config-meta').onclick = async () => {
@@ -1848,6 +1865,42 @@ document.getElementById('btn-salvar-config-meta').onclick = async () => {
     });
     await loadMetaConfig();
     toast(`Configuração salva: metas ${META_PERIOD_LABEL[metaConfig.tipo_meta_periodo]?.toLowerCase() || metaConfig.tipo_meta_periodo}`);
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+};
+
+document.getElementById('btn-salvar-config-api-token').onclick = async () => {
+  if (!canManageConfig()) return toast('Sem permissão para alterar configurações', 'error');
+  const token = String(document.getElementById('cfg-api-token')?.value || '').trim();
+  if (token.length < 12) return toast('A chave fixa deve ter pelo menos 12 caracteres', 'error');
+  try {
+    await api('/api/configuracoes/api-token', {
+      method: 'PUT',
+      body: JSON.stringify({ api_token_fixo: token }),
+    });
+    await loadApiTokenConfig();
+    toast('Chave fixa da API salva com sucesso');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+};
+
+document.getElementById('btn-limpar-config-api-token').onclick = async () => {
+  if (!canManageConfig()) return toast('Sem permissão para alterar configurações', 'error');
+  if (!await confirmDialog({
+    title: 'Remover chave fixa da API?',
+    message: 'Integrações que usam essa chave deixarão de funcionar até configurar uma nova.',
+    okText: 'Remover',
+    variant: 'warn',
+  })) return;
+  try {
+    await api('/api/configuracoes/api-token', {
+      method: 'PUT',
+      body: JSON.stringify({ api_token_fixo: '' }),
+    });
+    await loadApiTokenConfig();
+    toast('Chave fixa removida');
   } catch (e) {
     toast(e.message, 'error');
   }

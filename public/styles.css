@@ -36,10 +36,17 @@ body{
   background:var(--bg); color:var(--text);
   font-size:14px; line-height:1.5;
   display:flex; min-height:100vh;
+  overflow:hidden;
   -webkit-font-smoothing:antialiased;
 }
 
-#app-shell{display:flex;flex:1;min-height:100vh}
+#app-shell{
+  display:flex;
+  flex:1;
+  height:100vh;
+  min-height:100vh;
+  overflow:hidden;
+}
 
 /* ---------- Auth ---------- */
 .auth-screen{
@@ -47,6 +54,7 @@ body{
   display:grid; place-items:center;
   background:radial-gradient(1200px 500px at 20% -10%, #e0e7ff 0%, transparent 55%), var(--bg);
   padding:20px;
+  overflow:auto;
 }
 .auth-card{
   width:min(420px, 100%);
@@ -132,7 +140,20 @@ body{
   border-radius:999px;font-size:12px;font-weight:600;
 }
 
-.content{padding:28px;flex:1;max-width:1400px;width:100%;margin:0 auto}
+.main{
+  min-height:0;
+  height:100vh;
+  overflow:hidden;
+}
+.content{
+  padding:28px;
+  flex:1;
+  min-height:0;
+  overflow:auto;
+  max-width:1400px;
+  width:100%;
+  margin:0 auto;
+}
 
 .hidden{display:none !important}
 .muted{color:var(--muted);font-size:13px}
@@ -554,7 +575,7 @@ pre code{font-family:inherit}
   .nav{flex-direction:row;overflow-x:auto;padding:0 10px 12px}
   .nav-item{white-space:nowrap}
   .nav-section, .sidebar-footer{display:none}
-  .content{padding:16px}
+  .content{padding:16px;overflow:auto}
   .topbar{padding:0 16px}
   .search{width:100%}
 }

@@ -57,6 +57,10 @@ O `docker-compose.yml` já usa volume nomeado (`metas_data`) para persistir o ba
 - `GET /api/auth/me` — usuário logado
 - `POST /api/auth/logout` — encerra sessão no cliente
 - Para as demais rotas `/api/*`, envie `Authorization: Bearer <token>`
+- Integração: é possível configurar uma **chave fixa da API** na tela `Configurações` e usar em:
+  - `Authorization: Bearer <chave_fixa>`
+  - ou `x-api-key: <chave_fixa>`
+  - (habilitado para `POST /api/deducoes`)
 
 ## 🔌 API pública — dedução por usuário
 
