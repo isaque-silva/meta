@@ -730,6 +730,8 @@ window.delFunc = async id => {
 // ===================================================
 let filterStatus = 'aberta';
 let filterFunc = '';
+let filterFuncSearch = '';
+let allFuncionariosFiltroMeta = [];
 
 document.querySelectorAll('#filter-status .seg').forEach(b => {
   b.addEventListener('click', () => {
@@ -743,15 +745,39 @@ document.getElementById('filter-func').addEventListener('change', e => {
   filterFunc = String(e.target.value || '').trim();
   loadMetas();
 });
+document.getElementById('filter-func-search').addEventListener('input', e => {
+  filterFuncSearch = String(e.target.value || '').trim().toLowerCase();
+  renderFuncSelectOptions();
+});
+
+function renderFuncSelectOptions() {
+  const sel = document.getElementById('filter-func');
+  if (!sel) return;
+
+  const filtered = !filterFuncSearch
+    ? allFuncionariosFiltroMeta
+    : allFuncionariosFiltroMeta.filter(f => {
+        const nome = String(f.nome || '').toLowerCase();
+        const usuario = String(f.usuario || '').toLowerCase();
+        return nome.includes(filterFuncSearch) || usuario.includes(filterFuncSearch);
+      });
+
+  const opts = ['<option value="">Todos os funcionários</option>']
+    .concat(filtered.map(f => `<option value="${f.id}">${escapeHtml(f.nome)} (@${escapeHtml(f.usuario)})</option>`));
+  sel.innerHTML = opts.join('');
+
+  const selectedStillVisible = filtered.some(f => String(f.id) === String(filterFunc));
+  sel.value = selectedStillVisible ? filterFunc : '';
+  if (filterFunc && !selectedStillVisible) {
+    filterFunc = '';
+    loadMetas();
+  }
+}
 
 async function loadFuncSelects() {
   const funcs = await api('/api/funcionarios');
-  const sel = document.getElementById('filter-func');
-  if (!sel) return;
-  const opts = ['<option value="">Todos os funcionários</option>']
-    .concat(funcs.map(f => `<option value="${f.id}">${escapeHtml(f.nome)} (@${escapeHtml(f.usuario)})</option>`));
-  sel.innerHTML = opts.join('');
-  sel.value = filterFunc || '';
+  allFuncionariosFiltroMeta = Array.isArray(funcs) ? funcs : [];
+  renderFuncSelectOptions();
 }
 
 async function loadMetas() {
