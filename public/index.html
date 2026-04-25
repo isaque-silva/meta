@@ -157,9 +157,15 @@
           <button class="seg" data-val="fechada">Fechadas</button>
           <button class="seg" data-val="">Todas</button>
         </div>
-        <div style="display:flex;flex-direction:column;gap:6px;min-width:260px">
-          <input id="filter-func-search" class="select" placeholder="Pesquisar funcionário..."/>
-          <select id="filter-func" class="select"></select>
+        <div class="combo" id="filter-func-combo">
+          <button class="combo-trigger select" type="button" id="filter-func-trigger">
+            <span id="filter-func-label">Todos os funcionários</span>
+            <span class="combo-caret">▾</span>
+          </button>
+          <div class="combo-popover hidden" id="filter-func-popover">
+            <input class="select combo-search" id="filter-func-search" placeholder="Pesquisar funcionário..."/>
+            <div class="combo-list" id="filter-func-list"></div>
+          </div>
         </div>
       </div>
 

@@ -741,18 +741,46 @@ document.querySelectorAll('#filter-status .seg').forEach(b => {
     loadMetas();
   });
 });
-document.getElementById('filter-func').addEventListener('change', e => {
-  filterFunc = String(e.target.value || '').trim();
-  loadMetas();
+const comboTrigger = document.getElementById('filter-func-trigger');
+const comboPopover = document.getElementById('filter-func-popover');
+const comboSearch = document.getElementById('filter-func-search');
+const comboList = document.getElementById('filter-func-list');
+const comboLabel = document.getElementById('filter-func-label');
+
+function closeFuncCombo() {
+  comboPopover?.classList.add('hidden');
+}
+
+function openFuncCombo() {
+  comboPopover?.classList.remove('hidden');
+  comboSearch?.focus();
+}
+
+comboTrigger?.addEventListener('click', (e) => {
+  e.preventDefault();
+  if (!comboPopover) return;
+  const isOpen = !comboPopover.classList.contains('hidden');
+  if (isOpen) closeFuncCombo(); else openFuncCombo();
 });
-document.getElementById('filter-func-search').addEventListener('input', e => {
+
+document.addEventListener('click', (e) => {
+  const root = document.getElementById('filter-func-combo');
+  if (!root) return;
+  if (root.contains(e.target)) return;
+  closeFuncCombo();
+});
+
+comboSearch?.addEventListener('input', (e) => {
   filterFuncSearch = String(e.target.value || '').trim().toLowerCase();
   renderFuncSelectOptions();
 });
 
+comboSearch?.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeFuncCombo();
+});
+
 function renderFuncSelectOptions() {
-  const sel = document.getElementById('filter-func');
-  if (!sel) return;
+  if (!comboList) return;
 
   const filtered = !filterFuncSearch
     ? allFuncionariosFiltroMeta
@@ -762,15 +790,44 @@ function renderFuncSelectOptions() {
         return nome.includes(filterFuncSearch) || usuario.includes(filterFuncSearch);
       });
 
-  const opts = ['<option value="">Todos os funcionários</option>']
-    .concat(filtered.map(f => `<option value="${f.id}">${escapeHtml(f.nome)} (@${escapeHtml(f.usuario)})</option>`));
-  sel.innerHTML = opts.join('');
+  const items = [];
+  items.push({
+    id: '',
+    label: 'Todos os funcionários',
+    sub: `${allFuncionariosFiltroMeta.length} funcionário(s)`,
+  });
+  for (const f of filtered) {
+    items.push({
+      id: String(f.id),
+      label: String(f.nome || '—'),
+      sub: `@${String(f.usuario || '').trim()}`,
+    });
+  }
 
-  const selectedStillVisible = filtered.some(f => String(f.id) === String(filterFunc));
-  sel.value = selectedStillVisible ? filterFunc : '';
-  if (filterFunc && !selectedStillVisible) {
-    filterFunc = '';
-    loadMetas();
+  comboList.innerHTML = items.map(it => `
+    <div class="combo-item ${String(it.id) === String(filterFunc) ? 'active' : ''}" data-id="${escapeHtml(String(it.id))}">
+      <span>${escapeHtml(it.label)}</span>
+      <span class="muted">${escapeHtml(it.sub || '')}</span>
+    </div>
+  `).join('');
+
+  comboList.querySelectorAll('.combo-item').forEach(el => {
+    el.addEventListener('click', () => {
+      filterFunc = String(el.dataset.id || '').trim();
+      if (comboLabel) comboLabel.textContent = filterFunc
+        ? `${el.querySelector('span')?.textContent || 'Funcionário'}`
+        : 'Todos os funcionários';
+      closeFuncCombo();
+      loadMetas();
+    });
+  });
+
+  if (!filterFunc) {
+    if (comboLabel) comboLabel.textContent = 'Todos os funcionários';
+  } else {
+    const current = allFuncionariosFiltroMeta.find(f => String(f.id) === String(filterFunc));
+    if (comboLabel) comboLabel.textContent = current ? current.nome : 'Todos os funcionários';
+    if (!current) filterFunc = '';
   }
 }
 
