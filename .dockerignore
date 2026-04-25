@@ -1,0 +1,14 @@
+node_modules
+npm-debug.log
+.git
+.gitignore
+.cursor
+mcps
+terminals
+agent-transcripts
+assets
+metas.db
+*.db-shm
+*.db-wal
+.env
+.env.*
