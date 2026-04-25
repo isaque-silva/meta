@@ -26,7 +26,6 @@ ENV MYSQL_HOST=mysql
 ENV MYSQL_PORT=3306
 ENV MYSQL_DATABASE=metas_app
 ENV MYSQL_USER=metas
-ENV MYSQL_PASSWORD=metas123
 
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["npm", "start"]
