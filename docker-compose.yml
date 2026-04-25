@@ -1,6 +1,25 @@
 version: "3.9"
 
 services:
+  mysql:
+    image: mysql:8.4
+    container_name: metas-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: metas_app
+      MYSQL_USER: metas
+      MYSQL_PASSWORD: metas123
+    ports:
+      - "3306:3306"
+    volumes:
+      - metas_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   metas-app:
     build:
       context: .
@@ -12,13 +31,19 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      DB_PATH: /app/data/metas.db
+      DB_CLIENT: mysql
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: metas_app
+      MYSQL_USER: metas
+      MYSQL_PASSWORD: metas123
       AUTH_TOKEN_SECRET: change-this-in-production
       AUTH_TOKEN_TTL_HOURS: 720
       DEFAULT_ADMIN_USER: admin
       DEFAULT_ADMIN_PASSWORD: admin123
-    volumes:
-      - metas_data:/app/data
+    depends_on:
+      mysql:
+        condition: service_healthy
 
 volumes:
-  metas_data:
+  metas_mysql_data:

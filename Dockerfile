@@ -10,13 +10,15 @@ RUN npm ci --omit=dev
 # Copia codigo da aplicacao
 COPY . .
 
-# Pasta de dados do SQLite (volume recomendado em producao)
-RUN mkdir -p /app/data
-
 EXPOSE 3000
 
-# Permite sobrescrever porta/token/db no ambiente do Dokploy
+# Configuração padrão (sobrescreva no Dokploy)
 ENV PORT=3000
-ENV DB_PATH=/app/data/metas.db
+ENV DB_CLIENT=mysql
+ENV MYSQL_HOST=mysql
+ENV MYSQL_PORT=3306
+ENV MYSQL_DATABASE=metas_app
+ENV MYSQL_USER=metas
+ENV MYSQL_PASSWORD=metas123
 
 CMD ["npm", "start"]

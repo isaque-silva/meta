@@ -21,6 +21,17 @@ Plataforma web completa para gestão de metas trimestrais de funcionários, com 
 
 ## 🚀 Como rodar
 
+Defina as variáveis de conexão MySQL (exemplo):
+
+```bash
+export DB_CLIENT=mysql
+export MYSQL_HOST=127.0.0.1
+export MYSQL_PORT=3306
+export MYSQL_DATABASE=metas_app
+export MYSQL_USER=metas
+export MYSQL_PASSWORD=metas123
+```
+
 ```bash
 npm install
 npm start
@@ -28,7 +39,7 @@ npm start
 
 Abra: http://localhost:3000
 
-> Banco SQLite (`metas.db`) é criado automaticamente na primeira execução.
+> Banco MySQL é inicializado automaticamente na primeira execução.
 > Usuário padrão de primeiro acesso: `admin` / `admin123` (altere após entrar).
 
 ## 🐳 Docker / Dokploy
@@ -43,13 +54,18 @@ A aplicação ficará em `http://localhost:3000`.
 
 ### Variáveis importantes
 
+- `DB_CLIENT` (use `mysql`)
+- `MYSQL_HOST`
+- `MYSQL_PORT`
+- `MYSQL_DATABASE`
+- `MYSQL_USER`
+- `MYSQL_PASSWORD`
 - `AUTH_TOKEN_SECRET` (obrigatório em produção)
 - `AUTH_TOKEN_TTL_HOURS`
 - `DEFAULT_ADMIN_USER`
 - `DEFAULT_ADMIN_PASSWORD`
-- `DB_PATH` (padrão no container: `/app/data/metas.db`)
 
-O `docker-compose.yml` já usa volume nomeado (`metas_data`) para persistir o banco SQLite.
+O `docker-compose.yml` já sobe um serviço MySQL com volume persistente (`metas_mysql_data`).
 
 ## 🔐 Autenticação
 
@@ -131,7 +147,7 @@ curl -X POST http://localhost:3000/api/deducoes \
 ```
 .
 ├── server.js        # API Express
-├── db.js            # SQLite schema
+├── db_mysql.js      # MySQL schema e bootstrap
 ├── package.json
 ├── public/
 │   ├── index.html
@@ -143,5 +159,5 @@ curl -X POST http://localhost:3000/api/deducoes \
 ## 🛡 Stack
 
 - Node.js + Express
-- SQLite (better-sqlite3) — zero config
+- MySQL
 - Frontend: HTML/CSS/JS puro, UI dark moderna
