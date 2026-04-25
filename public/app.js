@@ -739,29 +739,26 @@ document.querySelectorAll('#filter-status .seg').forEach(b => {
     loadMetas();
   });
 });
-document.getElementById('filter-func').addEventListener('input', e => {
-  filterFunc = String(e.target.value || '').trim().toLowerCase();
+document.getElementById('filter-func').addEventListener('change', e => {
+  filterFunc = String(e.target.value || '').trim();
   loadMetas();
 });
 
 async function loadFuncSelects() {
   const funcs = await api('/api/funcionarios');
-  const list = document.getElementById('filter-func-options');
-  if (!list) return;
-  list.innerHTML = funcs.map(f => `<option value="${escapeHtml(f.nome)}"></option>`).join('');
+  const sel = document.getElementById('filter-func');
+  if (!sel) return;
+  const opts = ['<option value="">Todos os funcionários</option>']
+    .concat(funcs.map(f => `<option value="${f.id}">${escapeHtml(f.nome)} (@${escapeHtml(f.usuario)})</option>`));
+  sel.innerHTML = opts.join('');
+  sel.value = filterFunc || '';
 }
 
 async function loadMetas() {
   const params = new URLSearchParams();
   if (filterStatus) params.set('status', filterStatus);
-  let rows = await api('/api/metas?' + params);
-  if (filterFunc) {
-    rows = rows.filter(m => {
-      const nome = String(m.funcionario_nome || '').toLowerCase();
-      const usuario = String(m.funcionario_usuario || '').toLowerCase();
-      return nome.includes(filterFunc) || usuario.includes(filterFunc);
-    });
-  }
+  if (filterFunc) params.set('funcionario_id', filterFunc);
+  const rows = await api('/api/metas?' + params);
 
   const tbody = document.getElementById('tbl-metas');
   tbody.innerHTML = rows.length ? rows.map(m => {
