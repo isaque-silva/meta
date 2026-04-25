@@ -1048,14 +1048,16 @@ window.verMeta = async id => {
       <div class="meta-meses">
             ${meses.map(mm => {
               const alvo = Number(mm.valor_inicial) || 0;
-              const saldo = Number(mm.valor_atual) || 0;
+              const saldoBase = Number(mm.valor_atual) || 0;
               const ded = Math.max(0, Number(mm.valor_deduzido || 0));
               const ganhoVar = Math.max(0, Number(mm.valor_melhorias || mm.valor_variaveis || 0));
               const qtdVarMes = Math.max(0, Number(mm.total_variaveis || mm.total_melhorias || 0));
               const nDed = Number(mm.total_deducoes || 0);
               const idx = Number(mm.mes_offset);
               const ordem = Number.isFinite(idx) ? idx + 1 : null;
-              const pctMes = alvo > 0 ? Math.min(100, Math.max(0, (saldo / alvo) * 100)) : 0;
+              const saldo = saldoBase + ganhoVar;
+              const alvoComVariavel = alvo + ganhoVar;
+              const pctMes = alvoComVariavel > 0 ? Math.min(100, Math.max(0, (saldo / alvoComVariavel) * 100)) : 0;
               const chipMes = ded > 0
                 ? `<span class="tag" style="background:var(--danger-50);color:var(--danger);border:1px solid #fecaca">Com dedução</span>`
                 : `<span class="tag" style="background:var(--success-50);color:var(--success);border:1px solid #a7f3d0">Saldo integral</span>`;
@@ -1098,7 +1100,7 @@ window.verMeta = async id => {
                   </div>
                   <div class="meta-mes-foot">
                     ${footDed}
-                    <span>${isOperador() ? `Saldo ${fmtPctGlobal(pctMes)} do mês` : `Alvo ${fmtBRL(alvo)} → restam ${fmtBRL(saldo)}`}</span>
+                    <span>${isOperador() ? `Saldo ${fmtPctGlobal(pctMes)} do mês` : `Alvo ${fmtBRL(alvo)}${ganhoVar > 0 ? ` + variável ${fmtBRL(ganhoVar)}` : ''} → restam ${fmtBRL(saldo)}`}</span>
                   </div>
                 </article>`;
             }).join('')}

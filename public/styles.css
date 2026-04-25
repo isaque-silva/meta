@@ -427,14 +427,17 @@ pre code{font-family:inherit}
 .meta-mes-progress .progress{height:6px;border-radius:999px;background:var(--border)}
 .meta-mes-progress .progress-meta{font-size:11px;margin-top:5px}
 .meta-mes-stats{
-  display:grid;grid-template-columns:repeat(3,1fr);gap:8px;
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;
+}
+@media(max-width:760px){
+  .meta-mes-stats{grid-template-columns:repeat(2,1fr)}
 }
 @media(max-width:420px){
   .meta-mes-stats{grid-template-columns:1fr}
 }
 .meta-mes-stat{
   background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);
-  padding:8px 10px;text-align:center;
+  padding:8px 8px;text-align:center;
 }
 .meta-mes-stat .lbl{display:block;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:2px}
 .meta-mes-stat .val{display:block;font-size:13px;font-weight:700;color:var(--text)}
