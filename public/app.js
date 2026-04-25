@@ -278,7 +278,7 @@ function confirmDialog(opts = {}) {
 // ============ Toast ============
 function toast(msg, type = 'success', opts = {}) {
   // Por padrão, toast fecha automaticamente em 20s.
-  const { autoCloseMs = 20000 } = opts || {};
+  const { autoCloseMs = 15000 } = opts || {};
   const t = document.getElementById('toast');
   t.innerHTML = `
     <span class="toast-msg">${escapeHtml(msg)}</span>
