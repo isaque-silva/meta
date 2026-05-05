@@ -1600,7 +1600,23 @@ document.getElementById('btn-deducao-lote').onclick = async () => {
   const unidades = uniqueSortedValues(funcs, 'unidade');
   const equipes = uniqueSortedValues(funcs, 'equipe');
   const now = new Date();
-  const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const metaMonths = currentMetaPeriodMonths();
+  const periodLabel = META_PERIOD_LABEL[metaConfig.tipo_meta_periodo] || 'Trimestral';
+  const currentYear = now.getFullYear();
+  const years = [currentYear - 1, currentYear, currentYear + 1];
+  const defaultStartMonth = Math.floor(now.getMonth() / metaMonths) * metaMonths;
+
+  const monthShort = i => (MONTHS_PT[i] || '').slice(0, 3);
+  const buildPeriodOptions = () => {
+    if (metaMonths === 3) return QUARTERS.map(q => ({ value: String(q.startMonth), label: q.label }));
+    const total = Math.max(1, Math.floor(12 / metaMonths));
+    return Array.from({ length: total }, (_, i) => {
+      const start = i * metaMonths;
+      const end = (start + metaMonths - 1) % 12;
+      const label = `P${i + 1} · ${monthShort(start)} – ${monthShort(end)}`;
+      return { value: String(start), label };
+    });
+  };
 
   openDrawer('Dedução em lote inteligente', `
     <div class="form-grid-2">
@@ -1628,14 +1644,28 @@ document.getElementById('btn-deducao-lote').onclick = async () => {
         </select>
       </div>
       <div class="field">
-        <label>Período da meta (mês/ano)</label>
-        <input id="dl-periodo" type="month" value="${ym}"/>
+        <label>Período da meta (${metaMonths} ${metaMonths === 1 ? 'mês' : 'meses'} · ${periodLabel})</label>
+        <div class="form-grid-2">
+          <select id="dl-ano" class="select" style="width:100%">
+            ${years.map(y => `<option value="${y}" ${y===currentYear?'selected':''}>${y}</option>`).join('')}
+          </select>
+          <select id="dl-periodo" class="select" style="width:100%">
+            ${buildPeriodOptions().map(p => `<option value="${p.value}" ${Number(p.value)===defaultStartMonth?'selected':''}>${p.label}</option>`).join('')}
+            <option value="custom">Personalizado…</option>
+          </select>
+        </div>
       </div>
     </div>
     <div class="form-grid-2">
+      <div class="field hidden" id="dl-custom-wrap">
+        <label>Mês inicial</label>
+        <select id="dl-mes-inicial" class="select" style="width:100%">
+          ${MONTHS_PT.map((m,i) => `<option value="${i}" ${i===defaultStartMonth?'selected':''}>${m}</option>`).join('')}
+        </select>
+      </div>
       <div class="field">
         <label>Mês de dedução</label>
-        <input id="dl-mes-ano" type="month" value="${ym}"/>
+        <select id="dl-mes-ano" class="select" style="width:100%"></select>
       </div>
       <div class="field">
         <label>Percentual da dedução (%)</label>
@@ -1661,12 +1691,40 @@ document.getElementById('btn-deducao-lote').onclick = async () => {
   let ultimoPayload = null;
   let ultimaPrevia = null;
 
+  const anoEl = document.getElementById('dl-ano');
+  const periodoEl = document.getElementById('dl-periodo');
+  const customWrap = document.getElementById('dl-custom-wrap');
+  const mesInicialEl = document.getElementById('dl-mes-inicial');
+  const mesAnoEl = document.getElementById('dl-mes-ano');
+
+  const resolveStartMonth = () => {
+    if (periodoEl.value === 'custom') return Number(mesInicialEl.value);
+    return Number(periodoEl.value);
+  };
+  const toMesAno = (year, monthIndex0) => `${String(monthIndex0 + 1).padStart(2, '0')}/${year}`;
+  const buildMesDeducaoOptions = () => {
+    const year = Number(anoEl.value);
+    const start = resolveStartMonth();
+    const months = Array.from({ length: metaMonths }, (_, i) => {
+      const m0 = (start + i) % 12;
+      const y = year + Math.floor((start + i) / 12);
+      return { value: toMesAno(y, m0), label: `${MONTHS_PT[m0]}/${y}` };
+    });
+    mesAnoEl.innerHTML = months.map((m, idx) => `<option value="${m.value}" ${idx===0?'selected':''}>${m.label}</option>`).join('');
+  };
+  const updatePeriodoUI = () => {
+    customWrap.classList.toggle('hidden', periodoEl.value !== 'custom');
+    buildMesDeducaoOptions();
+  };
+  [anoEl, periodoEl, mesInicialEl].forEach(el => el.addEventListener('change', updatePeriodoUI));
+  updatePeriodoUI();
+
   const buildPayload = () => ({
     cargo: document.getElementById('dl-cargo').value || undefined,
     unidade: document.getElementById('dl-unidade').value || undefined,
     equipe: document.getElementById('dl-equipe').value || undefined,
-    periodo: monthInputToMesAno(document.getElementById('dl-periodo').value),
-    mes_ano: monthInputToMesAno(document.getElementById('dl-mes-ano').value),
+    periodo: toMesAno(Number(anoEl.value), resolveStartMonth()),
+    mes_ano: String(mesAnoEl.value || '').trim() || null,
     percentual: Number(document.getElementById('dl-percentual').value),
     motivo: document.getElementById('dl-motivo').value || null,
   });
