@@ -1697,6 +1697,20 @@ function atualizarVariavelMeta(req, res) {
     ? (String(req.body.motivo || '').trim() || null)
     : row.motivo;
 
+  const valorAnterior = Number(row.valor_total || 0);
+  if (valorTotal < valorAnterior) {
+    const mesOffsetEdit = Number(row.mes_offset);
+    const totalVariavelMesEdit = totalVariavelNoMes(meta.id, mesOffsetEdit);
+    const totalDeduzidoVariavelMesEdit = totalVariavelDeduzidaNoMes(meta.id, mesOffsetEdit);
+    const novoTotalVariavelMes = Math.round((totalVariavelMesEdit - valorAnterior + valorTotal) * 100) / 100;
+    if (novoTotalVariavelMes < totalDeduzidoVariavelMesEdit) {
+      const minimoTotal = Math.max(0, Math.round((totalDeduzidoVariavelMesEdit - (totalVariavelMesEdit - valorAnterior)) * 100) / 100);
+      return res.status(400).json({
+        error: `Não é possível reduzir este lançamento porque ele já foi consumido por dedução vinculada à meta variável neste mês. Valor mínimo permitido: R$ ${minimoTotal.toFixed(2).replace('.', ',')}.`,
+      });
+    }
+  }
+
   const tx = db.transaction(() => {
     db.prepare(`
       UPDATE meta_melhorias

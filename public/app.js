@@ -1354,20 +1354,49 @@ window.verMeta = async id => {
     : emptyState('Nenhuma dedução até o momento');
 
   const variaveis = Array.isArray(m.variaveis) ? m.variaveis : (Array.isArray(m.melhorias) ? m.melhorias : []);
+  const totaisPorMesVar = {};
+  for (const mm of meses) {
+    const off = Number(mm.mes_offset);
+    totaisPorMesVar[off] = {
+      totalVar: Number(mm.valor_melhorias || mm.valor_variaveis || 0),
+      totalDedVar: Number(mm.valor_deduzido_variavel || 0),
+    };
+  }
+  const limiteVariavel = (mx) => {
+    const tot = totaisPorMesVar[Number(mx.mes_offset)] || { totalVar: 0, totalDedVar: 0 };
+    const valorAtual = Number(mx.valor_total || 0);
+    const outros = Math.max(0, Math.round((tot.totalVar - valorAtual) * 100) / 100);
+    const minimo = Math.max(0, Math.round((tot.totalDedVar - outros) * 100) / 100);
+    return {
+      temDeducao: tot.totalDedVar > 0,
+      minimo,
+      travadoTotal: minimo >= valorAtual,
+    };
+  };
+
   const variaveisHtml = variaveis.length
     ? variaveis.map(mx => {
         const valorTxt = isOperador() ? `${mx.quantidade || 0}` : `+${fmtBRL(mx.valor_total || 0)}`;
         const subMes = (mx.mes_ano_variavel || mx.mes_ano_melhoria) ? ` · ${mx.mes_ano_variavel || mx.mes_ano_melhoria}` : '';
-        const variavelActions = m.status === 'aberta' && canCreateMeta()
-          ? `<div style="display:flex;gap:6px;align-items:center">
-              <button type="button" class="icon-btn" title="Editar lançamento de variável" onclick="editarVariavelMeta(${m.id}, ${mx.id})"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-              <button type="button" class="icon-btn" title="Excluir lançamento de variável" onclick="delVariavelMeta(${m.id}, ${mx.id})"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg></button>
-            </div>`
+        const lim = limiteVariavel(mx);
+        const chipDeducao = lim.temDeducao && lim.minimo > 0
+          ? ` <span class="tag" title="Este lançamento já foi consumido por dedução variável neste mês${!isOperador() ? ` (mínimo permitido R$ ${lim.minimo.toFixed(2).replace('.', ',')})` : ''}." style="background:#fef3c7;color:#92400e;border:1px solid #fde68a">com dedução vinculada</span>`
+          : '';
+        const podeAcoes = m.status === 'aberta' && canCreateMeta();
+        const podeExcluir = podeAcoes && !lim.travadoTotal;
+        const editBtn = podeAcoes
+          ? `<button type="button" class="icon-btn" title="Editar lançamento de variável${lim.temDeducao ? ` (mínimo R$ ${lim.minimo.toFixed(2).replace('.', ',')})` : ''}" onclick="editarVariavelMeta(${m.id}, ${mx.id})"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`
+          : '';
+        const delBtn = podeExcluir
+          ? `<button type="button" class="icon-btn" title="Excluir lançamento de variável" onclick="delVariavelMeta(${m.id}, ${mx.id})"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg></button>`
+          : (podeAcoes ? `<button type="button" class="icon-btn" disabled title="Não pode excluir: este lançamento foi consumido por dedução variável neste mês." style="opacity:.4;cursor:not-allowed"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg></button>` : '');
+        const variavelActions = podeAcoes
+          ? `<div style="display:flex;gap:6px;align-items:center">${editBtn}${delBtn}</div>`
           : '';
         return `
       <div class="stack-item">
         <div class="body">
-          <div class="title"><span class="tag" style="background:var(--success-50);color:var(--success);border:1px solid #a7f3d0">Variável</span> ${valorTxt}</div>
+          <div class="title"><span class="tag" style="background:var(--success-50);color:var(--success);border:1px solid #a7f3d0">Variável</span> ${valorTxt}${chipDeducao}</div>
           <div class="sub">${escapeHtml(mx.motivo || 'Sem descrição')}${subMes} · ${fmtDateTime(mx.criado_em)}</div>
         </div>
         ${variavelActions}
@@ -1547,6 +1576,21 @@ window.editarVariavelMeta = async (metaId, variavelId) => {
   const mx = (Array.isArray(m.variaveis) ? m.variaveis : []).find(x => Number(x.id) === Number(variavelId));
   if (!mx) return toast('Lançamento não encontrado', 'error');
 
+  const mesesEdit = Array.isArray(m.meses) ? m.meses : [];
+  const mesAtualEdit = mesesEdit.find(x => Number(x.mes_offset) === Number(mx.mes_offset)) || {};
+  const totalVarMesEdit = Number(mesAtualEdit.valor_melhorias || mesAtualEdit.valor_variaveis || 0);
+  const totalDedVarMesEdit = Number(mesAtualEdit.valor_deduzido_variavel || 0);
+  const valorAtualLanc = Number(mx.valor_total || 0);
+  const outrosLancMes = Math.max(0, Math.round((totalVarMesEdit - valorAtualLanc) * 100) / 100);
+  const minimoLanc = Math.max(0, Math.round((totalDedVarMesEdit - outrosLancMes) * 100) / 100);
+  const minimoTxt = `R$ ${minimoLanc.toFixed(2).replace('.', ',')}`;
+  const avisoDeducao = totalDedVarMesEdit > 0 && minimoLanc > 0
+    ? `<div style="background:#fef3c7;border:1px solid #fde68a;color:#92400e;border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:12px;font-size:12.5px">
+        <b>Atenção:</b> este lançamento já tem dedução vinculada à meta variável neste mês.
+        ${isOperador() ? 'Reduções abaixo do mínimo necessário não são permitidas.' : `Não é possível reduzir o total abaixo de <b>${minimoTxt}</b> nem excluir até a dedução ser removida.`}
+      </div>`
+    : '';
+
   const mesLabelCurto = data => {
     const d = new Date(String(data).slice(0, 10) + 'T00:00:00');
     if (isNaN(d)) return mx.mes_ano_variavel || '—';
@@ -1565,6 +1609,7 @@ window.editarVariavelMeta = async (metaId, variavelId) => {
     <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:14px;font-size:12.5px">
       <b>${escapeHtml(m.titulo)}</b> <span class="muted">· ${escapeHtml(m.funcionario_nome)}</span>
     </div>
+    ${avisoDeducao}
     <div class="field">
       <label>Mês do lançamento</label>
       <div style="padding:8px 0;font-weight:600">${escapeHtml(mesLegenda)}</div>
@@ -1588,6 +1633,10 @@ window.editarVariavelMeta = async (metaId, variavelId) => {
     const quantidade = Math.max(1, Math.floor(Number(document.getElementById('mxe-qtd').value) || 1));
     const valor_unitario = Number(document.getElementById('mxe-unit').value);
     if (!(valor_unitario > 0)) return toast('Valor unitário inválido', 'error');
+    const novoTotal = Math.round(quantidade * valor_unitario * 100) / 100;
+    if (novoTotal < minimoLanc) {
+      return toast(`Não é possível reduzir o lançamento abaixo de ${minimoTxt} (já consumido por dedução variável neste mês).`, 'error');
+    }
     try {
       await api(`/api/meta-variaveis/${variavelId}`, {
         method: 'PUT',
