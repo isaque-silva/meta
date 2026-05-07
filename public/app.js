@@ -145,7 +145,21 @@ function pctOf(value, total) {
 }
 
 function fmtPctGlobal(value, digits = 1) {
-  return `${Number(value || 0).toFixed(digits)}%`;
+  const n = Number(value || 0);
+  const abs = Math.abs(n);
+  let casas = digits;
+  if (abs > 0 && abs < 1) {
+    let extra = 0;
+    let probe = abs;
+    while (probe < 1 && extra < 11) {
+      probe *= 10;
+      extra += 1;
+    }
+    casas = Math.max(digits, Math.min(11, extra + 1));
+  }
+  let txt = n.toFixed(casas);
+  if (txt.includes('.')) txt = txt.replace(/0+$/, '').replace(/\.$/, '');
+  return `${txt}%`;
 }
 
 function applySessionChip() {
@@ -1225,7 +1239,21 @@ window.verMeta = async id => {
     ? { chip: `chip-${m.resultado || 'fechada'}`, label: m.resultado ? m.resultado.replace('_',' ') : 'Fechada' }
     : deriveStatus(m);
 
-  const fmtPct = p => Number(p).toFixed(p % 1 === 0 ? 0 : 2);
+  const fmtPct = p => {
+    const n = Number(p) || 0;
+    if (n % 1 === 0) return String(n);
+    const abs = Math.abs(n);
+    let casas = 2;
+    if (abs > 0 && abs < 1) {
+      let extra = 0;
+      let probe = abs;
+      while (probe < 1 && extra < 11) { probe *= 10; extra += 1; }
+      casas = Math.max(2, Math.min(11, extra + 1));
+    }
+    let txt = n.toFixed(casas);
+    if (txt.includes('.')) txt = txt.replace(/0+$/, '').replace(/\.$/, '');
+    return txt;
+  };
   const parseDataMes = (dataMes) => {
     if (!dataMes) return null;
     const d = new Date(String(dataMes).slice(0, 10) + 'T00:00:00');
@@ -1634,7 +1662,7 @@ window.deduzirMeta = async id => {
     ` : '<p class="muted" style="font-size:13px;margin-bottom:14px">Esta meta não tem meses cadastrados; não é possível deduzir por mês.</p>'}
     <div class="field">
       <label>Percentual a deduzir (%)</label>
-      <input id="d-pct" type="number" step="0.01" min="0.01" placeholder="Ex: 10" ${meses.length ? '' : 'disabled'}/>
+      <input id="d-pct" type="number" step="any" min="0" placeholder="Ex: 10 ou 0,001234" ${meses.length ? '' : 'disabled'}/>
       <small class="muted" id="d-pct-calc" style="display:block;margin-top:4px;font-size:12px;line-height:1.4">
         O percentual incide sobre a <b>meta fixa do mês</b>. Se houver saldo variável, é possível deduzir acima de 100% consumindo esse saldo.
       </small>
@@ -1887,7 +1915,7 @@ document.getElementById('btn-deducao-lote').onclick = async () => {
       </div>
       <div class="field">
         <label>Percentual da dedução (%)</label>
-        <input id="dl-percentual" type="number" min="0.01" step="0.01" placeholder="Ex: 10"/>
+        <input id="dl-percentual" type="number" min="0" step="any" placeholder="Ex: 10 ou 0,001234"/>
       </div>
     </div>
     <div class="field">

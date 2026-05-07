@@ -146,7 +146,7 @@ CREATE TABLE IF NOT EXISTS deducoes (
   motivo TEXT NULL,
   origem VARCHAR(30) DEFAULT 'api',
   mes_offset INT NULL,
-  percentual DECIMAL(8,2) NULL,
+  percentual DECIMAL(14,11) NULL,
   criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_deducoes_meta
     FOREIGN KEY (meta_id) REFERENCES metas(id) ON DELETE CASCADE,
@@ -236,7 +236,8 @@ if (!colExists('funcionarios', 'valor_unitario_variavel')) query('ALTER TABLE fu
 if (!colExists('funcionarios', 'unidade')) query('ALTER TABLE funcionarios ADD COLUMN unidade VARCHAR(255) NULL');
 if (!colExists('funcionarios', 'equipe')) query('ALTER TABLE funcionarios ADD COLUMN equipe VARCHAR(255) NULL');
 if (!colExists('deducoes', 'mes_offset')) query('ALTER TABLE deducoes ADD COLUMN mes_offset INT NULL');
-if (!colExists('deducoes', 'percentual')) query('ALTER TABLE deducoes ADD COLUMN percentual DECIMAL(8,2) NULL');
+if (!colExists('deducoes', 'percentual')) query('ALTER TABLE deducoes ADD COLUMN percentual DECIMAL(14,11) NULL');
+try { query('ALTER TABLE deducoes MODIFY COLUMN percentual DECIMAL(14,11) NULL'); } catch (e) { /* já está no tipo correto */ }
 if (!colExists('deducoes', 'valor_fixo')) query('ALTER TABLE deducoes ADD COLUMN valor_fixo DECIMAL(12,2) NOT NULL DEFAULT 0');
 if (!colExists('deducoes', 'valor_variavel')) query('ALTER TABLE deducoes ADD COLUMN valor_variavel DECIMAL(12,2) NOT NULL DEFAULT 0');
 if (!colExists('usuarios', 'ativo')) query("ALTER TABLE usuarios ADD COLUMN ativo TINYINT(1) NOT NULL DEFAULT 1");
