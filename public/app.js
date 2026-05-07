@@ -1229,16 +1229,15 @@ window.verMeta = async id => {
       <div class="meta-meses">
             ${meses.map(mm => {
               const alvo = Number(mm.valor_inicial) || 0;
-              const saldoBase = Number(mm.valor_atual) || 0;
+              const saldo = Number(mm.valor_atual) || 0;
               const ded = Math.max(0, Number(mm.valor_deduzido || 0));
               const ganhoVar = Math.max(0, Number(mm.valor_melhorias || mm.valor_variaveis || 0));
               const qtdVarMes = Math.max(0, Number(mm.total_variaveis || mm.total_melhorias || 0));
               const nDed = Number(mm.total_deducoes || 0);
               const idx = Number(mm.mes_offset);
               const ordem = Number.isFinite(idx) ? idx + 1 : null;
-              const saldo = saldoBase + ganhoVar;
-              const alvoComVariavel = alvo + ganhoVar;
-              const pctMes = alvoComVariavel > 0 ? Math.min(100, Math.max(0, (saldo / alvoComVariavel) * 100)) : 0;
+              const alvoEfetivo = Math.max(alvo, Math.round((saldo + ded) * 100) / 100);
+              const pctMes = alvoEfetivo > 0 ? Math.min(100, Math.max(0, (saldo / alvoEfetivo) * 100)) : 0;
               const chipMes = ded > 0
                 ? `<span class="tag" style="background:var(--danger-50);color:var(--danger);border:1px solid #fecaca">Com dedução</span>`
                 : `<span class="tag" style="background:var(--success-50);color:var(--success);border:1px solid #a7f3d0">Saldo integral</span>`;
@@ -1264,7 +1263,7 @@ window.verMeta = async id => {
                   <div class="meta-mes-stats">
                     <div class="meta-mes-stat">
                       <span class="lbl">Meta do mês</span>
-                      <span class="val">${isOperador() ? '100%' : fmtBRL(alvo)}</span>
+                      <span class="val">${isOperador() ? '100%' : fmtBRL(alvoEfetivo)}</span>
                     </div>
                     <div class="meta-mes-stat" style="border-left:3px solid var(--success)">
                       <span class="lbl">Variável</span>
@@ -1272,7 +1271,7 @@ window.verMeta = async id => {
                     </div>
                     <div class="meta-mes-stat ded">
                       <span class="lbl">Deduzido</span>
-                      <span class="val">${ded > 0 ? (isOperador() ? fmtPctGlobal(alvo > 0 ? (ded / alvo) * 100 : 0) : '−' + fmtBRL(ded)) : '—'}</span>
+                      <span class="val">${ded > 0 ? (isOperador() ? fmtPctGlobal(alvoEfetivo > 0 ? (ded / alvoEfetivo) * 100 : 0) : '−' + fmtBRL(ded)) : '—'}</span>
                     </div>
                     <div class="meta-mes-stat saldo">
                       <span class="lbl">Saldo</span>
@@ -1281,7 +1280,7 @@ window.verMeta = async id => {
                   </div>
                   <div class="meta-mes-foot">
                     ${footDed}
-                    <span>${isOperador() ? `Saldo ${fmtPctGlobal(pctMes)} do mês` : `Alvo ${fmtBRL(alvo)}${ganhoVar > 0 ? ` + variável ${fmtBRL(ganhoVar)}` : ''} → restam ${fmtBRL(saldo)}`}</span>
+                    <span>${isOperador() ? `Saldo ${fmtPctGlobal(pctMes)} do mês` : `Alvo ${fmtBRL(alvoEfetivo)}${ganhoVar > 0 ? ` (inclui variável ${fmtBRL(ganhoVar)})` : ''} → restam ${fmtBRL(saldo)}`}</span>
                   </div>
                 </article>`;
             }).join('')}
@@ -1584,8 +1583,10 @@ window.deduzirMeta = async id => {
         const sel = off === defaultOffset ? ' selected' : '';
         const saldoZero = Number(mm.valor_atual) <= 0;
         const aviso = saldoZero ? ' (saldo zerado)' : '';
-        const pctSaldo = Number(mm.valor_inicial) > 0 ? (Number(mm.valor_atual) / Number(mm.valor_inicial)) * 100 : 0;
-        return `<option value="${off}"${sel}>Mês ${off + 1} · ${mesLabelCurto(mm.data_mes)} — ${isOperador() ? `saldo ${fmtPctGlobal(pctSaldo)}` : `meta ${fmtBRL(mm.valor_inicial)} · saldo ${fmtBRL(mm.valor_atual)}`}${aviso}</option>`;
+        const dedOpt = Math.max(0, Number(mm.valor_deduzido || 0));
+        const alvoOpt = Math.max(Number(mm.valor_inicial) || 0, Math.round(((Number(mm.valor_atual) || 0) + dedOpt) * 100) / 100);
+        const pctSaldo = alvoOpt > 0 ? (Number(mm.valor_atual) / alvoOpt) * 100 : 0;
+        return `<option value="${off}"${sel}>Mês ${off + 1} · ${mesLabelCurto(mm.data_mes)} — ${isOperador() ? `saldo ${fmtPctGlobal(pctSaldo)}` : `alvo ${fmtBRL(alvoOpt)} · saldo ${fmtBRL(mm.valor_atual)}`}${aviso}</option>`;
       }).join('')
     : '';
 
@@ -1604,7 +1605,7 @@ window.deduzirMeta = async id => {
       <label>Percentual a deduzir (%)</label>
       <input id="d-pct" type="number" step="0.01" min="0.01" max="100" placeholder="Ex: 10" ${meses.length ? '' : 'disabled'}/>
       <small class="muted" id="d-pct-calc" style="display:block;margin-top:4px;font-size:12px;line-height:1.4">
-        O percentual incide sobre o <b>valor-alvo (meta)</b> do mês escolhido.
+        O percentual incide sobre o <b>valor-alvo efetivo do mês</b> (meta fixa + ganhos variáveis já incorporados ao saldo).
       </small>
     </div>
     <div class="field"><label>Motivo</label><input id="d-motivo" placeholder="Ex: Erro operacional no pedido #1234"/></div>
@@ -1632,14 +1633,15 @@ window.deduzirMeta = async id => {
       calcEl.textContent = 'Escolha um mês com meta cadastrada.';
       return;
     }
-    const alvoMes = Number(mm.valor_inicial) || 0;
+    const dedMes = Math.max(0, Number(mm.valor_deduzido || 0));
+    const alvoMes = Math.max(Number(mm.valor_inicial) || 0, Math.round(((Number(mm.valor_atual) || 0) + dedMes) * 100) / 100);
     const saldoMes = Number(mm.valor_atual) || 0;
     if (mesHintEl) {
       mesHintEl.innerHTML = saldoMes <= 0
         ? '<span style="color:var(--warn)">Saldo deste mês já está zerado; a dedução não reduzirá mais o saldo.</span>'
         : (isOperador()
           ? `Alvo do mês: <b>100%</b> · Saldo atual: <b>${fmtPctGlobal(alvoMes > 0 ? (saldoMes / alvoMes) * 100 : 0)}</b>`
-          : `Alvo do mês: <b>${fmtBRL(alvoMes)}</b> · Saldo atual: <b>${fmtBRL(saldoMes)}</b>`);
+          : `Alvo efetivo do mês: <b>${fmtBRL(alvoMes)}</b> · Saldo atual: <b>${fmtBRL(saldoMes)}</b>`);
     }
     const p = Number(pctInput.value);
     if (alvoMes > 0 && p > 0) {
@@ -1678,7 +1680,8 @@ window.deduzirMeta = async id => {
     const p = Number(pctInput.value);
     if (!p || p <= 0) return toast('Informe um percentual válido', 'error');
 
-    const alvoMes = Number(mm.valor_inicial) || 0;
+    const dedMes = Math.max(0, Number(mm.valor_deduzido || 0));
+    const alvoMes = Math.max(Number(mm.valor_inicial) || 0, Math.round(((Number(mm.valor_atual) || 0) + dedMes) * 100) / 100);
     const saldoMes = Number(mm.valor_atual) || 0;
     const saldoPctDisponivel = alvoMes > 0 ? (saldoMes / alvoMes) * 100 : 0;
     if (saldoMes <= 0 || saldoPctDisponivel <= 0) {
