@@ -230,6 +230,7 @@ createIndexIfMissing('meta_meses', 'idx_mm_meta', 'meta_id');
 createIndexIfMissing('usuarios', 'idx_users_usuario', 'usuario');
 
 if (!colExists('funcionarios', 'valor_meta_mensal')) query('ALTER TABLE funcionarios ADD COLUMN valor_meta_mensal DECIMAL(12,2) NOT NULL DEFAULT 0');
+if (!colExists('funcionarios', 'valor_unitario_variavel')) query('ALTER TABLE funcionarios ADD COLUMN valor_unitario_variavel DECIMAL(12,2) NOT NULL DEFAULT 0');
 if (!colExists('funcionarios', 'unidade')) query('ALTER TABLE funcionarios ADD COLUMN unidade VARCHAR(255) NULL');
 if (!colExists('funcionarios', 'equipe')) query('ALTER TABLE funcionarios ADD COLUMN equipe VARCHAR(255) NULL');
 if (!colExists('deducoes', 'mes_offset')) query('ALTER TABLE deducoes ADD COLUMN mes_offset INT NULL');

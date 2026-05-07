@@ -88,6 +88,14 @@ function verifyToken(token) {
 }
 
 const PERMISSION_KEYS = [
+  'pagina_dashboard',
+  'pagina_metas',
+  'pagina_funcionarios',
+  'pagina_deducoes',
+  'pagina_fechamento',
+  'pagina_api',
+  'pagina_usuarios',
+  'pagina_configuracoes',
   'meta_gerar',
   'meta_excluir',
   'deducao_gerar',
@@ -102,18 +110,15 @@ const PERMISSION_KEYS = [
 function defaultPermissionsByRole(role) {
   const all = Object.fromEntries(PERMISSION_KEYS.map(k => [k, true]));
   if (role === 'admin') return all;
-  if (role === 'gestor') return all;
-  return {
-    meta_gerar: true,
-    meta_excluir: true,
-    deducao_gerar: true,
-    deducao_excluir: true,
-    funcionario_criar: true,
-    funcionario_editar: true,
-    funcionario_excluir: true,
-    fechamento_gerar: true,
-    fechamento_excluir: true,
-  };
+  if (role === 'gestor') {
+    all.pagina_usuarios = false;
+    all.pagina_configuracoes = false;
+    return all;
+  }
+  // operador: mesmas ações de antes; telas de administração ficam sem acesso
+  all.pagina_usuarios = false;
+  all.pagina_configuracoes = false;
+  return all;
 }
 
 function normalizePermissionsInput(input, role) {
@@ -181,6 +186,7 @@ function routeNeedsGestor(req) {
   if (p === '/metas/lote' && req.method === 'POST') return true;
   if (/^\/metas\/\d+$/.test(p) && (req.method === 'PUT' || req.method === 'DELETE')) return true;
   if (/^\/metas\/\d+\/(melhorias|variaveis)$/.test(p) && req.method === 'POST') return true;
+  if (/^\/meta-variaveis\/\d+$/.test(p) && req.method === 'PUT') return true;
   if (/^\/metas\/\d+\/(fechar|reabrir)$/.test(p) && req.method === 'POST') return true;
   if (/^\/deducoes\/\d+$/.test(p) && req.method === 'DELETE') return true;
   if (p === '/fechamentos' && req.method === 'POST') return true;
@@ -190,14 +196,50 @@ function routeNeedsGestor(req) {
 
 function permissionKeyForRoute(req) {
   const p = req.path;
+  const m = req.method;
+  const user = req.user;
+  const perm = user?.permissoes || {};
+
+  /** Exige `primary` salvo em perm, salvo se alguma chave em `orAny` for true (ex.: dashboard consome metas/deduções). */
+  function viewGate(primary, orAny = []) {
+    if (user?.tipo_acesso === 'admin') return null;
+    if (perm[primary]) return null;
+    for (const k of orAny) {
+      if (perm[k]) return null;
+    }
+    return primary;
+  }
+
+  if (p === '/dashboard' && m === 'GET') return viewGate('pagina_dashboard');
+
+  if ((p === '/metas' || /^\/metas\/\d+$/.test(p)) && m === 'GET') {
+    return viewGate('pagina_metas', ['pagina_dashboard', 'pagina_funcionarios', 'pagina_fechamento', 'pagina_deducoes']);
+  }
+
+  if (p === '/funcionarios' && m === 'GET') {
+    return viewGate('pagina_funcionarios', ['pagina_metas', 'pagina_deducoes', 'pagina_fechamento']);
+  }
+
+  if (p === '/deducoes' && m === 'GET') {
+    return viewGate('pagina_deducoes', ['pagina_dashboard']);
+  }
+
+  if ((p === '/fechamentos' || p === '/fechamentos/preview' || /^\/fechamentos\/\d+$/.test(p)) && m === 'GET') {
+    return viewGate('pagina_fechamento', ['pagina_metas']);
+  }
+
+  if (p === '/usuarios' && m === 'GET') return viewGate('pagina_usuarios');
+
   if (p === '/funcionarios' && req.method === 'POST') return 'funcionario_criar';
   if (p === '/funcionarios/importar' && req.method === 'POST') return 'funcionario_criar';
   if (/^\/funcionarios\/\d+$/.test(p) && req.method === 'PUT') return 'funcionario_editar';
   if (/^\/funcionarios\/\d+$/.test(p) && req.method === 'DELETE') return 'funcionario_excluir';
   if (p === '/metas' && req.method === 'POST') return 'meta_gerar';
   if (p === '/metas/lote' && req.method === 'POST') return 'meta_gerar';
+  if (/^\/metas\/\d+$/.test(p) && req.method === 'PUT') return 'meta_gerar';
   if (/^\/metas\/\d+$/.test(p) && req.method === 'DELETE') return 'meta_excluir';
   if (/^\/metas\/\d+\/(melhorias|variaveis)$/.test(p) && req.method === 'POST') return 'meta_gerar';
+  if (/^\/meta-variaveis\/\d+$/.test(p) && req.method === 'PUT') return 'meta_gerar';
   if (/^\/metas\/\d+\/deducoes$/.test(p) && req.method === 'POST') return 'deducao_gerar';
   if (p === '/deducoes/lote/preview' && req.method === 'POST') return 'deducao_gerar';
   if (p === '/deducoes/lote/aplicar' && req.method === 'POST') return 'deducao_gerar';
@@ -240,7 +282,7 @@ app.use('/api', (req, res, next) => {
     return res.status(403).json({ error: 'Apenas administradores podem gerenciar usuários' });
   }
   const permissionKey = permissionKeyForRoute(req);
-  if (permissionKey && req.user.tipo_acesso !== 'admin' && !req.user.permissoes?.[permissionKey]) {
+  if (permissionKey && !req.user.permissoes?.[permissionKey]) {
     return res.status(403).json({ error: 'Você não possui permissão para esta ação' });
   }
   if (routeNeedsGestor(req) && !hasAnyAccess(req.user.tipo_acesso, ['admin', 'gestor'])) {
@@ -658,18 +700,19 @@ app.get('/api/funcionarios', (req, res) => {
 });
 
 app.post('/api/funcionarios', (req, res) => {
-  const { nome, usuario, cargo, unidade, equipe, valor_meta_mensal } = req.body || {};
+  const { nome, usuario, cargo, unidade, equipe, valor_meta_mensal, valor_unitario_variavel } = req.body || {};
   if (!nome || !usuario) return res.status(400).json({ error: 'nome e usuario são obrigatórios' });
   try {
     const info = db.prepare(
-      'INSERT INTO funcionarios (nome, usuario, cargo, unidade, equipe, valor_meta_mensal) VALUES (?, ?, ?, ?, ?, ?)'
+      'INSERT INTO funcionarios (nome, usuario, cargo, unidade, equipe, valor_meta_mensal, valor_unitario_variavel) VALUES (?, ?, ?, ?, ?, ?, ?)'
     ).run(
       nome.trim(),
       usuario.trim().toLowerCase(),
       cargo || null,
       unidade || null,
       equipe || null,
-      Number(valor_meta_mensal) || 0
+      Number(valor_meta_mensal) || 0,
+      Math.max(0, Number(valor_unitario_variavel) || 0)
     );
     const func = db.prepare('SELECT * FROM funcionarios WHERE id = ?').get(info.lastInsertRowid);
     res.status(201).json(func);
@@ -686,7 +729,7 @@ app.post('/api/funcionarios/importar', (req, res) => {
 
   const usuarioExiste = db.prepare('SELECT 1 FROM funcionarios WHERE usuario = ? LIMIT 1');
   const inserir = db.prepare(
-    'INSERT INTO funcionarios (nome, usuario, cargo, unidade, equipe, valor_meta_mensal) VALUES (?, ?, ?, ?, ?, ?)'
+    'INSERT INTO funcionarios (nome, usuario, cargo, unidade, equipe, valor_meta_mensal, valor_unitario_variavel) VALUES (?, ?, ?, ?, ?, ?, ?)'
   );
 
   const criados = [];
@@ -701,6 +744,7 @@ app.post('/api/funcionarios/importar', (req, res) => {
       const unidade = String(item?.unidade || '').trim() || null;
       const equipe = String(item?.equipe || '').trim() || null;
       const valorMetaMensal = Number(item?.valor_meta_mensal) || 0;
+      const valorUnitVar = Math.max(0, Number(item?.valor_unitario_variavel) || 0);
 
       if (!nome || !usuario) {
         ignorados.push({ nome: nome || '(sem nome)', usuario: usuario || '(sem usuario)', motivo: 'nome e usuario são obrigatórios' });
@@ -720,7 +764,7 @@ app.post('/api/funcionarios/importar', (req, res) => {
         ignorados.push({ nome, usuario, motivo: 'usuário já cadastrado' });
         continue;
       }
-      const info = inserir.run(nome, usuario, cargo, unidade, equipe, Math.max(0, valorMetaMensal));
+      const info = inserir.run(nome, usuario, cargo, unidade, equipe, Math.max(0, valorMetaMensal), valorUnitVar);
       criados.push({
         id: info.lastInsertRowid,
         nome,
@@ -729,6 +773,7 @@ app.post('/api/funcionarios/importar', (req, res) => {
         unidade,
         equipe,
         valor_meta_mensal: Math.max(0, valorMetaMensal),
+        valor_unitario_variavel: valorUnitVar,
       });
     }
   });
@@ -750,9 +795,11 @@ app.post('/api/funcionarios/importar', (req, res) => {
 });
 
 app.put('/api/funcionarios/:id', (req, res) => {
-  const { nome, usuario, cargo, unidade, equipe, valor_meta_mensal } = req.body || {};
+  const { nome, usuario, cargo, unidade, equipe, valor_meta_mensal, valor_unitario_variavel } = req.body || {};
   const vmm = (valor_meta_mensal === undefined || valor_meta_mensal === null || valor_meta_mensal === '')
     ? null : Number(valor_meta_mensal);
+  const vuv = (valor_unitario_variavel === undefined || valor_unitario_variavel === null || valor_unitario_variavel === '')
+    ? null : Math.max(0, Number(valor_unitario_variavel));
   const info = db.prepare(
     `UPDATE funcionarios SET
        nome = COALESCE(?, nome),
@@ -760,7 +807,8 @@ app.put('/api/funcionarios/:id', (req, res) => {
        cargo = COALESCE(?, cargo),
        unidade = COALESCE(?, unidade),
        equipe = COALESCE(?, equipe),
-       valor_meta_mensal = COALESCE(?, valor_meta_mensal)
+       valor_meta_mensal = COALESCE(?, valor_meta_mensal),
+       valor_unitario_variavel = COALESCE(?, valor_unitario_variavel)
      WHERE id = ?`
   ).run(
     nome || null,
@@ -769,6 +817,7 @@ app.put('/api/funcionarios/:id', (req, res) => {
     unidade || null,
     equipe || null,
     vmm,
+    vuv,
     req.params.id
   );
   if (!info.changes) return res.status(404).json({ error: 'Funcionário não encontrado' });
@@ -800,7 +849,8 @@ app.get('/api/metas', (req, res) => {
 
 app.get('/api/metas/:id', (req, res) => {
   const meta = db.prepare(`
-    SELECT m.*, f.nome AS funcionario_nome, f.usuario AS funcionario_usuario
+    SELECT m.*, f.nome AS funcionario_nome, f.usuario AS funcionario_usuario,
+           f.valor_unitario_variavel AS funcionario_valor_unitario_variavel
     FROM metas m JOIN funcionarios f ON f.id = m.funcionario_id
     WHERE m.id = ?
   `).get(req.params.id);
@@ -1469,11 +1519,15 @@ function registrarVariavelMeta(req, res) {
     });
   }
 
-  const quantidade = Math.max(1, Math.floor(Number(req.body?.quantidade) || 1));
-  const valorUnitario = Number(req.body?.valor_unitario ?? 80);
+  const func = db.prepare('SELECT valor_unitario_variavel FROM funcionarios WHERE id = ?').get(meta.funcionario_id);
+  const valorUnitario = Number(func?.valor_unitario_variavel ?? 0);
   if (!(valorUnitario > 0)) {
-    return res.status(400).json({ error: 'Informe um valor unitário válido para a variável' });
+    return res.status(400).json({
+      error: 'Defina o valor unitário da meta variável no cadastro do funcionário antes de lançar.',
+    });
   }
+
+  const quantidade = Math.max(1, Math.floor(Number(req.body?.quantidade) || 1));
 
   let mesOffset = Number.isFinite(Number(req.body?.mes_offset)) ? Number(req.body?.mes_offset) : null;
   if (mesOffset == null && req.body?.mes_ano) {
@@ -1537,8 +1591,74 @@ function registrarVariavelMeta(req, res) {
   });
 }
 
+function atualizarVariavelMeta(req, res) {
+  const melhoriaId = Number(req.params.id);
+  const row = db.prepare('SELECT * FROM meta_melhorias WHERE id = ?').get(melhoriaId);
+  if (!row) return res.status(404).json({ error: 'Lançamento de variável não encontrado' });
+
+  const meta = db.prepare('SELECT * FROM metas WHERE id = ?').get(row.meta_id);
+  if (!meta) return res.status(404).json({ error: 'Meta não encontrada' });
+  if (meta.status !== 'aberta') {
+    return res.status(400).json({ error: 'Só é possível editar variável em metas abertas' });
+  }
+  if (metaJaTeveFechamento(meta)) {
+    return res.status(400).json({
+      error: 'Esta meta já possui fechamento executado. Remova o fechamento atual para poder editar ou reabrir a meta.',
+    });
+  }
+
+  const oldTotal = Math.round(Number(row.valor_total) * 100) / 100;
+  const quantidade = Math.max(1, Math.floor(Number(req.body?.quantidade ?? row.quantidade) || 1));
+  const valorUnitario = Number(req.body?.valor_unitario ?? row.valor_unitario);
+  if (!(valorUnitario > 0)) {
+    return res.status(400).json({ error: 'Informe um valor unitário válido' });
+  }
+  const valorTotal = Math.round((quantidade * valorUnitario) * 100) / 100;
+  const delta = Math.round((valorTotal - oldTotal) * 100) / 100;
+  const motivo = req.body?.motivo !== undefined
+    ? (String(req.body.motivo || '').trim() || null)
+    : row.motivo;
+
+  const mes = db.prepare('SELECT * FROM meta_meses WHERE meta_id = ? AND mes_offset = ?').get(meta.id, row.mes_offset);
+  if (!mes) return res.status(400).json({ error: 'Mês da variável não encontrado' });
+
+  const novoInicialMes = Math.round((Number(mes.valor_inicial) + delta) * 100) / 100;
+  const novoAtualMes = Math.round((Number(mes.valor_atual) + delta) * 100) / 100;
+  if (novoInicialMes < 0 || novoAtualMes < 0) {
+    return res.status(400).json({
+      error: 'A alteração deixa saldo ou alvo do mês inválido. Reduza a quantidade ou o valor unitário.',
+    });
+  }
+
+  const tx = db.transaction(() => {
+    db.prepare(`
+      UPDATE meta_melhorias
+      SET quantidade = ?, valor_unitario = ?, valor_total = ?, motivo = ?
+      WHERE id = ?
+    `).run(quantidade, valorUnitario, valorTotal, motivo, melhoriaId);
+
+    db.prepare('UPDATE meta_meses SET valor_inicial = ?, valor_atual = ? WHERE id = ?')
+      .run(novoInicialMes, novoAtualMes, mes.id);
+
+    sincronizarTotaisMeta(meta.id);
+  });
+  tx();
+
+  const metaAtualizada = db.prepare('SELECT * FROM metas WHERE id = ?').get(meta.id);
+  const mesAtualizado = db.prepare('SELECT * FROM meta_meses WHERE id = ?').get(mes.id);
+  const atualizado = db.prepare('SELECT * FROM meta_melhorias WHERE id = ?').get(melhoriaId);
+  res.json({
+    ok: true,
+    meta: metaAtualizada,
+    mes: mesAtualizado,
+    variavel: atualizado,
+    melhoria: atualizado,
+  });
+}
+
 app.post('/api/metas/:id/variaveis', registrarVariavelMeta);
 app.post('/api/metas/:id/melhorias', registrarVariavelMeta);
+app.put('/api/meta-variaveis/:id', atualizarVariavelMeta);
 
 // Listar todas deduções
 app.get('/api/deducoes', (req, res) => {

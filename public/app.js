@@ -10,6 +10,14 @@ const ACCESS_LABEL = {
   operador: 'Operador',
 };
 const USER_PERMISSION_LABELS = {
+  pagina_dashboard: 'Visualizar Dashboard',
+  pagina_metas: 'Visualizar Metas',
+  pagina_funcionarios: 'Visualizar Funcionários',
+  pagina_deducoes: 'Visualizar Deduções',
+  pagina_fechamento: 'Visualizar Fechamento',
+  pagina_api: 'Visualizar API e integração',
+  pagina_usuarios: 'Visualizar Usuários',
+  pagina_configuracoes: 'Visualizar Configurações',
   meta_gerar: 'Gerar metas',
   meta_excluir: 'Excluir metas',
   deducao_gerar: 'Gerar deduções',
@@ -22,11 +30,34 @@ const USER_PERMISSION_LABELS = {
 };
 const USER_PERMISSION_KEYS = Object.keys(USER_PERMISSION_LABELS);
 const USER_PERMISSION_GROUPS = [
+  {
+    title: 'Telas (acesso)',
+    keys: [
+      'pagina_dashboard',
+      'pagina_metas',
+      'pagina_funcionarios',
+      'pagina_deducoes',
+      'pagina_fechamento',
+      'pagina_api',
+      'pagina_usuarios',
+      'pagina_configuracoes',
+    ],
+  },
   { title: 'Metas', keys: ['meta_gerar', 'meta_excluir'] },
   { title: 'Deduções', keys: ['deducao_gerar', 'deducao_excluir'] },
   { title: 'Funcionários', keys: ['funcionario_criar', 'funcionario_editar', 'funcionario_excluir'] },
   { title: 'Fechamentos', keys: ['fechamento_gerar', 'fechamento_excluir'] },
 ];
+const PAGE_VIEW_PERM = {
+  dashboard: 'pagina_dashboard',
+  metas: 'pagina_metas',
+  funcionarios: 'pagina_funcionarios',
+  deducoes: 'pagina_deducoes',
+  fechamento: 'pagina_fechamento',
+  api: 'pagina_api',
+  usuarios: 'pagina_usuarios',
+  configuracoes: 'pagina_configuracoes',
+};
 const ACCESS_RANK = { operador: 1, gestor: 2, admin: 3 };
 const META_PERIOD_MONTHS = {
   mensal: 1,
@@ -78,7 +109,6 @@ const canManageConfig = () => hasAccess('admin');
 const isOperador = () => session.user?.tipo_acesso === 'operador';
 function hasUserPermission(key) {
   if (!session.user) return false;
-  if (session.user.tipo_acesso === 'admin') return true;
   return !!session.user.permissoes?.[key];
 }
 const canCreateFuncionario = () => hasUserPermission('funcionario_criar');
@@ -89,6 +119,23 @@ const canDeleteFuncionario = () => hasUserPermission('funcionario_excluir');
 const canDeleteMeta = () => hasUserPermission('meta_excluir');
 const canCreateFechamento = () => hasUserPermission('fechamento_gerar');
 const canDeleteFechamento = () => hasUserPermission('fechamento_excluir');
+function canViewPage(view) {
+  const key = PAGE_VIEW_PERM[view];
+  if (!key) return true;
+  return hasUserPermission(key);
+}
+function pickDefaultView() {
+  const order = ['dashboard', 'metas', 'funcionarios', 'deducoes', 'fechamento', 'api'];
+  if (canManageUsers() && hasUserPermission('pagina_usuarios')) order.push('usuarios');
+  if (canManageConfig() && hasUserPermission('pagina_configuracoes')) order.push('configuracoes');
+  for (const v of order) {
+    if (!canViewPage(v)) continue;
+    if (v === 'usuarios' && !canManageUsers()) continue;
+    if (v === 'configuracoes' && !canManageConfig()) continue;
+    return v;
+  }
+  return 'dashboard';
+}
 
 function pctOf(value, total) {
   const v = Number(value) || 0;
@@ -114,8 +161,15 @@ function applyAccessUI() {
   const showCreateMeta = canCreateMeta();
   const showUsers = canManageUsers();
   const showConfig = canManageConfig();
-  document.getElementById('nav-usuarios').classList.toggle('hidden', !showUsers);
-  document.getElementById('nav-configuracoes').classList.toggle('hidden', !showConfig);
+  Object.entries(PAGE_VIEW_PERM).forEach(([view, key]) => {
+    if (view === 'usuarios' || view === 'configuracoes') return;
+    const el = document.querySelector(`.nav-item[data-view="${view}"]`);
+    if (el) el.classList.toggle('hidden', !hasUserPermission(key));
+  });
+  const navU = document.getElementById('nav-usuarios');
+  const navC = document.getElementById('nav-configuracoes');
+  if (navU) navU.classList.toggle('hidden', !showUsers || !hasUserPermission('pagina_usuarios'));
+  if (navC) navC.classList.toggle('hidden', !showConfig || !hasUserPermission('pagina_configuracoes'));
   document.getElementById('btn-novo-usuario').classList.toggle('hidden', !canManageUsers());
   document.getElementById('btn-novo-func').classList.toggle('hidden', !showCreateFuncionario);
   document.getElementById('btn-import-func-csv').classList.toggle('hidden', !showCreateFuncionario);
@@ -306,8 +360,12 @@ document.querySelectorAll('[data-goto]').forEach(el => {
   el.addEventListener('click', () => goto(el.dataset.goto));
 });
 function goto(view) {
-  if (view === 'usuarios' && !canManageUsers()) view = 'dashboard';
-  if (view === 'configuracoes' && !canManageConfig()) view = 'dashboard';
+  if (!canViewPage(view)) {
+    toast('Sem permissão para acessar esta área.', 'warn');
+    view = pickDefaultView();
+  }
+  if (view === 'usuarios' && !canManageUsers()) view = pickDefaultView();
+  if (view === 'configuracoes' && !canManageConfig()) view = pickDefaultView();
   document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === view));
   document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
   document.getElementById(`view-${view}`).classList.remove('hidden');
@@ -356,8 +414,10 @@ document.getElementById('btn-login').onclick = async () => {
     showApp();
     toast('Login realizado com sucesso');
     const lastView = localStorage.getItem(LS_VIEW);
-    const blocked = (lastView === 'usuarios' && !canManageUsers()) || (lastView === 'configuracoes' && !canManageConfig());
-    const view = (lastView && loaders[lastView] && !blocked) ? lastView : 'dashboard';
+    const blocked = !canViewPage(lastView)
+      || (lastView === 'usuarios' && !canManageUsers())
+      || (lastView === 'configuracoes' && !canManageConfig());
+    const view = (lastView && loaders[lastView] && !blocked) ? lastView : pickDefaultView();
     goto(view);
   } catch (e) {
     toast(e.message, 'error');
@@ -501,6 +561,13 @@ function funcFormBody(f = {}) {
         Usado para pré-calcular o valor-alvo ao criar uma nova meta (valor × 3 meses).
       </small>
     </div>
+    <div class="field">
+      <label>Valor unitário da meta variável (R$)</label>
+      <input id="f-valor-unit-variavel" type="number" step="0.01" min="0" placeholder="0,00" value="${f.valor_unitario_variavel != null ? escapeHtml(String(f.valor_unitario_variavel)) : ''}"/>
+      <small class="muted" style="display:block;margin-top:4px;font-size:12px">
+        Usado ao lançar ganhos variáveis: total = quantidade × este valor. Alterações aqui não mudam lançamentos já feitos (edite o lançamento na meta, se necessário).
+      </small>
+    </div>
   `;
 }
 
@@ -552,6 +619,12 @@ function parseFuncionariosCsv(csvText) {
   const idxMeta = headers.findIndex(h =>
     h === 'valor_meta_mensal' || h === 'valor meta mensal' || h === 'meta_mensal' || h === 'meta mensal'
   );
+  const idxVarUnit = headers.findIndex(h =>
+    h === 'valor_unitario_variavel'
+    || h === 'valor unitario variavel'
+    || h === 'valor_variavel'
+    || h === 'meta variavel unitario'
+  );
 
   if (idxNome < 0 || idxUsuario < 0) {
     throw new Error('Cabeçalho inválido. Use pelo menos as colunas: nome, usuario.');
@@ -569,6 +642,10 @@ function parseFuncionariosCsv(csvText) {
     const valorMeta = brutoMeta
       ? Number(brutoMeta.replace(/\./g, '').replace(',', '.'))
       : 0;
+    const brutoVar = idxVarUnit >= 0 ? String(cols[idxVarUnit] || '').trim() : '';
+    const valorVarUnit = brutoVar
+      ? Number(brutoVar.replace(/\./g, '').replace(',', '.'))
+      : 0;
     rows.push({
       nome,
       usuario,
@@ -576,6 +653,7 @@ function parseFuncionariosCsv(csvText) {
       unidade,
       equipe,
       valor_meta_mensal: Number.isFinite(valorMeta) ? Math.max(0, valorMeta) : 0,
+      valor_unitario_variavel: Number.isFinite(valorVarUnit) ? Math.max(0, valorVarUnit) : 0,
     });
   }
   return rows.filter(r => r.nome || r.usuario);
@@ -599,6 +677,7 @@ document.getElementById('btn-novo-func').onclick = () => {
         unidade: document.getElementById('f-unidade').value,
         equipe: document.getElementById('f-equipe').value,
         valor_meta_mensal: Number(document.getElementById('f-valor-mensal').value) || 0,
+        valor_unitario_variavel: Number(document.getElementById('f-valor-unit-variavel').value) || 0,
       })});
       closeDrawer(); toast('Funcionário cadastrado');
       loadFuncionarios(); loadFuncSelects();
@@ -608,9 +687,9 @@ document.getElementById('btn-novo-func').onclick = () => {
 
 function downloadFuncionariosCsvTemplate() {
   const csv = [
-    'nome;usuario;cargo;unidade;equipe;valor_meta_mensal',
-    'Joao Silva;joao.silva;Analista;Matriz;Equipe A;1500,00',
-    'Maria Souza;maria.souza;Supervisora;Filial Sul;Equipe B;2200,00',
+    'nome;usuario;cargo;unidade;equipe;valor_meta_mensal;valor_unitario_variavel',
+    'Joao Silva;joao.silva;Analista;Matriz;Equipe A;1500,00;80,00',
+    'Maria Souza;maria.souza;Supervisora;Filial Sul;Equipe B;2200,00;100,00',
   ].join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const a = document.createElement('a');
@@ -629,16 +708,16 @@ document.getElementById('btn-import-func-csv').onclick = () => {
       <div style="font-weight:600;margin-bottom:6px">Instruções do arquivo CSV</div>
       <ul style="margin:0;padding-left:18px;color:var(--muted);font-size:13px;line-height:1.55">
         <li>Use as colunas: <b>nome</b> e <b>usuario</b> (obrigatórias).</li>
-        <li>Colunas opcionais: <b>cargo</b>, <b>unidade</b>, <b>equipe</b> e <b>valor_meta_mensal</b>.</li>
+        <li>Colunas opcionais: <b>cargo</b>, <b>unidade</b>, <b>equipe</b>, <b>valor_meta_mensal</b> e <b>valor_unitario_variavel</b>.</li>
         <li>Separador aceito: <b>;</b> ou <b>,</b>.</li>
         <li>O campo <b>usuario</b> deve ser único e sem espaços.</li>
       </ul>
     </div>
 
     <div style="background:#0f172a;color:#e2e8f0;border-radius:10px;padding:10px 12px;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-size:12px;margin-bottom:14px;overflow:auto">
-nome;usuario;cargo;unidade;equipe;valor_meta_mensal
-Joao Silva;joao.silva;Analista;Matriz;Equipe A;1500,00
-Maria Souza;maria.souza;Supervisora;Filial Sul;Equipe B;2200,00
+nome;usuario;cargo;unidade;equipe;valor_meta_mensal;valor_unitario_variavel
+Joao Silva;joao.silva;Analista;Matriz;Equipe A;1500,00;80,00
+Maria Souza;maria.souza;Supervisora;Filial Sul;Equipe B;2200,00;100,00
     </div>
 
     <div class="drawer-actions">
@@ -712,6 +791,7 @@ window.editFunc = async id => {
         unidade: document.getElementById('f-unidade').value,
         equipe: document.getElementById('f-equipe').value,
         valor_meta_mensal: Number(document.getElementById('f-valor-mensal').value) || 0,
+        valor_unitario_variavel: Number(document.getElementById('f-valor-unit-variavel').value) || 0,
       })});
       closeDrawer(); toast('Atualizado'); loadFuncionarios(); loadFuncSelects();
     } catch (e) { toast(e.message, 'error'); }
@@ -915,6 +995,7 @@ document.getElementById('btn-nova-meta').onclick = async () => {
   const currentQ = Math.floor(today.getMonth() / 3) + 1;
   const years = [currentYear - 1, currentYear, currentYear + 1];
   const elegiveis = funcs.filter(f => Number(f.valor_meta_mensal) > 0);
+  const hideMetaValues = isOperador();
 
   openDrawer('Nova meta', `
     <div class="segmented" style="margin-bottom:16px">
@@ -926,17 +1007,19 @@ document.getElementById('btn-nova-meta').onclick = async () => {
     <div id="m-mode-individual">
       <div class="field"><label>Responsável</label>
         <select id="m-func" class="select" style="width:100%">
-          ${funcs.map(f => `<option value="${f.id}" data-mensal="${f.valor_meta_mensal || 0}">${escapeHtml(f.nome)} (@${escapeHtml(f.usuario)})${f.valor_meta_mensal > 0 ? ' · ' + fmtBRL(f.valor_meta_mensal) + '/mês' : ''}</option>`).join('')}
+          ${funcs.map(f => `<option value="${f.id}"${hideMetaValues ? '' : ` data-mensal="${f.valor_meta_mensal || 0}"`}>${escapeHtml(f.nome)} (@${escapeHtml(f.usuario)})${!hideMetaValues && f.valor_meta_mensal > 0 ? ' · ' + fmtBRL(f.valor_meta_mensal) + '/mês' : ''}</option>`).join('')}
         </select>
       </div>
       <div class="field"><label>Título da meta</label><input id="m-titulo" placeholder="Ex: Meta de vendas"/></div>
       <div class="field"><label>Descrição</label><textarea id="m-desc" rows="3" placeholder="Contexto e critérios de sucesso..."></textarea></div>
 
+      ${hideMetaValues ? '' : `
       <div class="field">
         <label>Valor-alvo total do período (R$)</label>
         <input id="m-valor-total" type="number" step="0.01" min="0.01" placeholder="0,00"/>
       </div>
       <small class="muted" id="m-valor-hint" style="display:block;margin-bottom:14px;font-size:12px"></small>
+      `}
     </div>
 
     <!-- MODO GERAL -->
@@ -954,15 +1037,17 @@ document.getElementById('btn-nova-meta').onclick = async () => {
             ${elegiveis.map(f => `
               <div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px">
                 <span>${escapeHtml(f.nome)} <span class="muted">@${escapeHtml(f.usuario)}</span></span>
-                <span><b>${fmtBRL(f.valor_meta_mensal * metaMonths)}</b> <span class="muted" style="font-size:11px">(${fmtBRL(f.valor_meta_mensal)}/mês)</span></span>
+                ${hideMetaValues ? '' : `<span><b>${fmtBRL(f.valor_meta_mensal * metaMonths)}</b> <span class="muted" style="font-size:11px">(${fmtBRL(f.valor_meta_mensal)}/mês)</span></span>`}
               </div>
             `).join('')}
           </div>
+          ${hideMetaValues ? '' : `
           <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);display:flex;justify-content:space-between">
             <b>Total a ser gerado</b>
             <b style="color:var(--success)">${fmtBRL(elegiveis.reduce((s, f) => s + f.valor_meta_mensal * metaMonths, 0))}</b>
           </div>
-        ` : `<div class="muted">Nenhum funcionário tem valor de meta mensal definido. Cadastre o valor mensal na tela de Funcionários.</div>`}
+          `}
+        ` : `<div class="muted">${hideMetaValues ? 'Nenhum funcionário elegível para meta geral no momento.' : 'Nenhum funcionário tem valor de meta mensal definido. Cadastre o valor mensal na tela de Funcionários.'}</div>`}
       </div>
       <p class="muted" style="font-size:12px;margin-top:-6px;margin-bottom:14px">
         Funcionários que já possuírem meta no período selecionado serão automaticamente ignorados.
@@ -1028,6 +1113,7 @@ document.getElementById('btn-nova-meta').onclick = async () => {
     return Number(triEl.value);
   }
   function autoCalcValor() {
+    if (hideMetaValues) return;
     const opt = funcEl.options[funcEl.selectedIndex];
     const mensal = Number(opt?.dataset.mensal || 0);
     if (mensal > 0) {
@@ -1063,8 +1149,16 @@ document.getElementById('btn-nova-meta').onclick = async () => {
 
     if (mode === 'individual') {
       try {
-        const valor_inicial = Number(valorTotalEl?.value);
-        if (!(valor_inicial > 0)) return toast('Informe o valor-alvo total da meta', 'error');
+        let valor_inicial;
+        if (hideMetaValues) {
+          const fid = Number(funcEl.value);
+          const mensal = Number(funcs.find(x => Number(x.id) === fid)?.valor_meta_mensal || 0);
+          valor_inicial = mensal * metaMonths;
+          if (!(valor_inicial > 0)) return toast('O funcionário selecionado não está elegível para meta individual.', 'error');
+        } else {
+          valor_inicial = Number(valorTotalEl?.value);
+          if (!(valor_inicial > 0)) return toast('Informe o valor-alvo total da meta', 'error');
+        }
         await api('/api/metas', { method: 'POST', body: JSON.stringify({
           funcionario_id: Number(funcEl.value),
           titulo: document.getElementById('m-titulo').value,
@@ -1219,12 +1313,16 @@ window.verMeta = async id => {
     ? variaveis.map(mx => {
         const valorTxt = isOperador() ? `${mx.quantidade || 0}` : `+${fmtBRL(mx.valor_total || 0)}`;
         const subMes = (mx.mes_ano_variavel || mx.mes_ano_melhoria) ? ` · ${mx.mes_ano_variavel || mx.mes_ano_melhoria}` : '';
+        const editVariavelBtn = m.status === 'aberta' && canCreateMeta()
+          ? `<button type="button" class="icon-btn" title="Editar lançamento de variável" onclick="editarVariavelMeta(${m.id}, ${mx.id})"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`
+          : '';
         return `
       <div class="stack-item">
         <div class="body">
           <div class="title"><span class="tag" style="background:var(--success-50);color:var(--success);border:1px solid #a7f3d0">Variável</span> ${valorTxt}</div>
           <div class="sub">${escapeHtml(mx.motivo || 'Sem descrição')}${subMes} · ${fmtDateTime(mx.criado_em)}</div>
         </div>
+        ${editVariavelBtn}
       </div>`;
       }).join('')
     : emptyState('Nenhum ganho variável registrado até o momento');
@@ -1295,6 +1393,11 @@ window.registrarVariavelMeta = async id => {
   const meses = Array.isArray(m.meses) ? m.meses : [];
   if (!meses.length) return toast('Esta meta não possui meses configurados', 'error');
 
+  const unitCadastro = Number(m.funcionario_valor_unitario_variavel || 0);
+  if (!(unitCadastro > 0)) {
+    return toast('Defina o valor unitário da meta variável no cadastro do funcionário antes de lançar.', 'error');
+  }
+
   const hoje = new Date();
   const ymHoje = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
   const mesAtual = meses.find(mm => String(mm.data_mes || '').slice(0, 7) === ymHoje) || meses[0];
@@ -1312,6 +1415,18 @@ window.registrarVariavelMeta = async id => {
     return `<option value="${off}"${sel}>Mês ${off + 1} · ${mesLabelCurto(mm.data_mes)}</option>`;
   }).join('');
 
+  const unitarioCadastroBloco = isOperador()
+    ? `<div class="field">
+        <label>Valor unitário</label>
+        <p class="muted" style="margin:0;font-size:13px">Cada unidade usa o valor configurado no cadastro do funcionário.</p>
+      </div>`
+    : `<div class="field">
+        <label>Valor unitário (cadastro do funcionário)</label>
+        <div style="padding:10px 12px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);font-weight:600">
+          ${fmtBRL(unitCadastro)}
+        </div>
+      </div>`;
+
   openDrawer('Registrar meta variável', `
     <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:14px;font-size:12.5px">
       <b>${escapeHtml(m.titulo)}</b> <span class="muted">· ${escapeHtml(m.funcionario_nome)}</span>
@@ -1325,10 +1440,7 @@ window.registrarVariavelMeta = async id => {
         <label>Quantidade de variáveis</label>
         <input id="mx-qtd" type="number" min="1" step="1" value="1"/>
       </div>
-      <div class="field">
-        <label>Valor por variável (R$)</label>
-        <input id="mx-unit" type="number" min="0.01" step="0.01" value="80"/>
-      </div>
+      ${unitarioCadastroBloco}
     </div>
     <div class="field">
       <small class="muted" id="mx-preview" style="display:block;margin-top:2px"></small>
@@ -1344,29 +1456,28 @@ window.registrarVariavelMeta = async id => {
   `);
 
   const qtdEl = document.getElementById('mx-qtd');
-  const unitEl = document.getElementById('mx-unit');
   const prevEl = document.getElementById('mx-preview');
   const updatePreview = () => {
     const qtd = Math.max(1, Math.floor(Number(qtdEl.value) || 1));
-    const unit = Math.max(0, Number(unitEl.value) || 0);
+    const unit = unitCadastro;
     const total = qtd * unit;
-    prevEl.innerHTML = `Ganho variável calculado: <b style="color:var(--success)">+${fmtBRL(total)}</b> (${qtd} × ${fmtBRL(unit)})`;
+    if (isOperador()) {
+      prevEl.textContent = `Total: ${qtd} unidade(s) de variável.`;
+    } else {
+      prevEl.innerHTML = `Ganho variável calculado: <b style="color:var(--success)">+${fmtBRL(total)}</b> (${qtd} × ${fmtBRL(unit)})`;
+    }
   };
   qtdEl.addEventListener('input', updatePreview);
-  unitEl.addEventListener('input', updatePreview);
   updatePreview();
 
   document.getElementById('mx-save').onclick = async () => {
     const quantidade = Math.max(1, Math.floor(Number(qtdEl.value) || 1));
-    const valor_unitario = Number(unitEl.value);
-    if (!(valor_unitario > 0)) return toast('Informe um valor unitário válido', 'error');
     const mes_offset = Number(document.getElementById('mx-mes').value);
     try {
       await api(`/api/metas/${id}/variaveis`, {
         method: 'POST',
         body: JSON.stringify({
           quantidade,
-          valor_unitario,
           mes_offset,
           motivo: document.getElementById('mx-motivo').value
         })
@@ -1375,6 +1486,73 @@ window.registrarVariavelMeta = async id => {
       await loadMetas();
       await loadDashboard();
       await verMeta(id);
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  };
+};
+
+window.editarVariavelMeta = async (metaId, variavelId) => {
+  if (!canCreateMeta()) return toast('Sem permissão para editar variável', 'error');
+  const m = await api(`/api/metas/${metaId}`);
+  if (m.status !== 'aberta') return toast('Só é possível editar variável em metas abertas', 'error');
+  const mx = (Array.isArray(m.variaveis) ? m.variaveis : []).find(x => Number(x.id) === Number(variavelId));
+  if (!mx) return toast('Lançamento não encontrado', 'error');
+
+  const mesLabelCurto = data => {
+    const d = new Date(String(data).slice(0, 10) + 'T00:00:00');
+    if (isNaN(d)) return mx.mes_ano_variavel || '—';
+    return `${MONTHS_PT[d.getMonth()]}/${d.getFullYear()}`;
+  };
+  const mesLegenda = mx.data_mes_variavel ? mesLabelCurto(mx.data_mes_variavel) : (mx.mes_ano_variavel || '—');
+
+  const unitField = isOperador()
+    ? `<input type="hidden" id="mxe-unit" value="${Number(mx.valor_unitario)}"/>`
+    : `<div class="field">
+        <label>Valor unitário (R$)</label>
+        <input id="mxe-unit" type="number" min="0.01" step="0.01" value="${Number(mx.valor_unitario)}"/>
+      </div>`;
+
+  openDrawer('Editar meta variável', `
+    <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:14px;font-size:12.5px">
+      <b>${escapeHtml(m.titulo)}</b> <span class="muted">· ${escapeHtml(m.funcionario_nome)}</span>
+    </div>
+    <div class="field">
+      <label>Mês do lançamento</label>
+      <div style="padding:8px 0;font-weight:600">${escapeHtml(mesLegenda)}</div>
+    </div>
+    <div class="field">
+      <label>Quantidade de variáveis</label>
+      <input id="mxe-qtd" type="number" min="1" step="1" value="${Math.max(1, Math.floor(Number(mx.quantidade) || 1))}"/>
+    </div>
+    ${unitField}
+    <div class="field">
+      <label>Descrição / motivo</label>
+      <input id="mxe-motivo" value="${escapeHtml(mx.motivo || '')}"/>
+    </div>
+    <div class="drawer-actions">
+      <button class="btn btn-success" id="mxe-save">Salvar alterações</button>
+      <button class="btn btn-ghost" onclick="closeDrawer()">Cancelar</button>
+    </div>
+  `);
+
+  document.getElementById('mxe-save').onclick = async () => {
+    const quantidade = Math.max(1, Math.floor(Number(document.getElementById('mxe-qtd').value) || 1));
+    const valor_unitario = Number(document.getElementById('mxe-unit').value);
+    if (!(valor_unitario > 0)) return toast('Valor unitário inválido', 'error');
+    try {
+      await api(`/api/meta-variaveis/${variavelId}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          quantidade,
+          valor_unitario,
+          motivo: document.getElementById('mxe-motivo').value,
+        }),
+      });
+      toast('Variável atualizada');
+      await loadMetas();
+      await loadDashboard();
+      await verMeta(metaId);
     } catch (e) {
       toast(e.message, 'error');
     }
@@ -1937,7 +2115,7 @@ function usuarioFormBody(u = {}, funcionarios = []) {
       <div class="perm-panel">
         ${permsHtml}
       </div>
-      <small class="muted" style="display:block;margin-top:6px;font-size:12px">Use para habilitar/limitar ações no sistema para este usuário.</small>
+      <small class="muted" style="display:block;margin-top:6px;font-size:12px">Defina quais telas o usuário pode abrir e quais ações pode executar. Sem permissão de tela, o item some no menu e as consultas da API daquela área são bloqueadas.</small>
     </div>
     ${u.id ? '' : `
       <div class="field">
@@ -1980,8 +2158,12 @@ function collectUserPermissionsFromForm() {
 
 async function loadUsuarios() {
   if (!canManageUsers()) {
-    goto('dashboard');
+    goto(pickDefaultView());
     return toast('Somente administradores podem acessar usuários', 'error');
+  }
+  if (!canViewPage('usuarios')) {
+    goto(pickDefaultView());
+    return toast('Sem permissão para visualizar a tela de usuários', 'error');
   }
   const rows = await api('/api/usuarios');
   const tbody = document.getElementById('tbl-usuarios');
@@ -2100,8 +2282,12 @@ window.delUsuario = async id => {
 
 async function loadConfiguracoes() {
   if (!canManageConfig()) {
-    goto('dashboard');
+    goto(pickDefaultView());
     return toast('Somente administradores podem acessar configurações', 'error');
+  }
+  if (!canViewPage('configuracoes')) {
+    goto(pickDefaultView());
+    return toast('Sem permissão para visualizar configurações', 'error');
   }
   await Promise.all([loadMetaConfig(), loadApiTokenConfig()]);
   const el = document.getElementById('cfg-meta-periodo');
@@ -2490,8 +2676,10 @@ const loaders = {
     showApp();
     const lastView = localStorage.getItem(LS_VIEW);
     const valid = lastView && loaders[lastView];
-    const blocked = (lastView === 'usuarios' && !canManageUsers()) || (lastView === 'configuracoes' && !canManageConfig());
-    const safeView = (valid && !blocked) ? lastView : 'dashboard';
+    const blocked = !canViewPage(lastView)
+      || (lastView === 'usuarios' && !canManageUsers())
+      || (lastView === 'configuracoes' && !canManageConfig());
+    const safeView = (valid && !blocked) ? lastView : pickDefaultView();
     goto(safeView);
     if (safeView === 'fechamento') {
       const lastFech = localStorage.getItem(LS_FECH);
