@@ -884,6 +884,8 @@ app.get('/api/metas/:id', (req, res) => {
   const mesesRows = db.prepare(`
     SELECT mm.*,
       (SELECT COALESCE(SUM(valor),0) FROM deducoes d WHERE d.meta_id = mm.meta_id AND d.mes_offset = mm.mes_offset) AS valor_deduzido,
+      (SELECT COALESCE(SUM(valor_fixo),0) FROM deducoes d WHERE d.meta_id = mm.meta_id AND d.mes_offset = mm.mes_offset) AS valor_deduzido_fixo,
+      (SELECT COALESCE(SUM(valor_variavel),0) FROM deducoes d WHERE d.meta_id = mm.meta_id AND d.mes_offset = mm.mes_offset) AS valor_deduzido_variavel,
       (SELECT COUNT(*)             FROM deducoes d WHERE d.meta_id = mm.meta_id AND d.mes_offset = mm.mes_offset) AS total_deducoes,
       (SELECT COALESCE(SUM(valor_total),0) FROM meta_melhorias mx WHERE mx.meta_id = mm.meta_id AND mx.mes_offset = mm.mes_offset) AS valor_variaveis,
       (SELECT COALESCE(SUM(quantidade),0)  FROM meta_melhorias mx WHERE mx.meta_id = mm.meta_id AND mx.mes_offset = mm.mes_offset) AS total_variaveis,
@@ -1152,26 +1154,57 @@ function totalDeducoesNoMes(metaId, mesOffset) {
   return Math.round(Number(row?.s || 0) * 100) / 100;
 }
 
-/**
- * Base percentual da dedução no mês: inclui meta variável já incorporada ao saldo.
- * Usa max(valor_inicial, valor_atual + já deduzido no mês) para cobrir dados onde
- * o ganho variável elevou o saldo mas valor_inicial não acompanhou.
- */
-function alvoMensalParaDeducaoPercentual(metaId, mesRow) {
-  const vi = Math.round(Number(mesRow.valor_inicial) * 100) / 100;
-  const va = Math.round(Number(mesRow.valor_atual) * 100) / 100;
-  const ded = totalDeducoesNoMes(metaId, mesRow.mes_offset);
-  const antesDeducoes = Math.round((va + ded) * 100) / 100;
-  return Math.max(vi, antesDeducoes);
+function totalVariavelNoMes(metaId, mesOffset) {
+  const row = db.prepare(`
+    SELECT COALESCE(SUM(valor_total), 0) AS s
+    FROM meta_melhorias
+    WHERE meta_id = ? AND mes_offset = ?
+  `).get(metaId, mesOffset);
+  return Math.round(Number(row?.s || 0) * 100) / 100;
 }
 
+function totalVariavelDeduzidaNoMes(metaId, mesOffset) {
+  const row = db.prepare(`
+    SELECT COALESCE(SUM(valor_variavel), 0) AS s
+    FROM deducoes
+    WHERE meta_id = ? AND mes_offset = ?
+  `).get(metaId, mesOffset);
+  return Math.round(Number(row?.s || 0) * 100) / 100;
+}
+
+/**
+ * Dedução percentual usa como base APENAS a meta fixa do mês (valor_inicial),
+ * mas permite ultrapassar 100% consumindo o saldo variável disponível do mês.
+ *
+ * Ex: fixa=100, variável=80, pct=101% => deseja 101; consome 100 fixo + 1 variável.
+ */
 function calcularDeducaoMes(metaId, mesRow, pct) {
-  const alvo = alvoMensalParaDeducaoPercentual(metaId, mesRow);
-  const va = Math.round(Number(mesRow.valor_atual) * 100) / 100;
-  const vDesejado = Math.round((alvo * pct / 100) * 100) / 100;
-  const vEfetivo = Math.min(vDesejado, va);
-  const novoVa = Math.max(0, Math.round((va - vEfetivo) * 100) / 100);
-  return { alvo, vDesejado, vEfetivo, novoVa };
+  const fixoBase = Math.round(Number(mesRow.valor_inicial) * 100) / 100;
+  const fixoSaldo = Math.round(Number(mesRow.valor_atual) * 100) / 100;
+  const varTotal = totalVariavelNoMes(metaId, mesRow.mes_offset);
+  const varDed = totalVariavelDeduzidaNoMes(metaId, mesRow.mes_offset);
+  const varSaldo = Math.max(0, Math.round((varTotal - varDed) * 100) / 100);
+
+  const vDesejado = Math.round((fixoBase * pct / 100) * 100) / 100;
+  const disponivelTotal = Math.max(0, Math.round((fixoSaldo + varSaldo) * 100) / 100);
+  const vEfetivo = Math.min(vDesejado, disponivelTotal);
+
+  const valorFixo = Math.min(vEfetivo, fixoSaldo);
+  const valorVariavel = Math.max(0, Math.round((vEfetivo - valorFixo) * 100) / 100);
+  const novoFixoSaldo = Math.max(0, Math.round((fixoSaldo - valorFixo) * 100) / 100);
+
+  return {
+    fixoBase,
+    fixoSaldo,
+    varTotal,
+    varDed,
+    varSaldo,
+    vDesejado,
+    vEfetivo,
+    valor_fixo: valorFixo,
+    valor_variavel: valorVariavel,
+    novoFixoSaldo,
+  };
 }
 
 function normalizarFiltroTexto(input) {
@@ -1262,7 +1295,7 @@ function montarPlanoDeducaoLote({ cargo, unidade, equipe, periodo, mes_ano, perc
       continue;
     }
 
-    const { alvo, vDesejado, vEfetivo, novoVa } = calcularDeducaoMes(m.meta_id, mes, pct);
+    const calc = calcularDeducaoMes(m.meta_id, mes, pct);
     const valorAnterior = Number(mes.valor_atual);
     aplicar.push({
       funcionario_id: m.funcionario_id,
@@ -1276,11 +1309,16 @@ function montarPlanoDeducaoLote({ cargo, unidade, equipe, periodo, mes_ano, perc
       mes_offset: offset,
       data_mes: mes.data_mes,
       mes_ano: mesAnoNorm,
-      valor_mes_inicial: alvo,
-      valor_mes_anterior: valorAnterior,
-      valor_deducao_desejado: vDesejado,
-      valor_deducao: vEfetivo,
-      valor_mes_resultante: novoVa,
+      valor_mes_fixo_inicial: calc.fixoBase,
+      valor_mes_fixo_anterior: calc.fixoSaldo,
+      valor_mes_variavel_total: calc.varTotal,
+      valor_mes_variavel_anterior: calc.varSaldo,
+      valor_deducao_desejado: calc.vDesejado,
+      valor_deducao: calc.vEfetivo,
+      valor_deducao_fixo: calc.valor_fixo,
+      valor_deducao_variavel: calc.valor_variavel,
+      valor_mes_fixo_resultante: calc.novoFixoSaldo,
+      valor_mes_variavel_resultante: Math.max(0, Math.round((calc.varSaldo - calc.valor_variavel) * 100) / 100),
       percentual: pct,
     });
   }
@@ -1334,19 +1372,19 @@ app.post('/api/metas/:id/deducoes', (req, res) => {
     });
   }
 
-  const { vEfetivo, novoVa } = calcularDeducaoMes(meta.id, mes, pct);
-  if (vEfetivo <= 0) {
+  const calc = calcularDeducaoMes(meta.id, mes, pct);
+  if (calc.vEfetivo <= 0) {
     return res.status(400).json({
       error: 'Não há saldo disponível no mês para esta dedução.',
     });
   }
 
   const tx = db.transaction(() => {
-    db.prepare('UPDATE meta_meses SET valor_atual = ? WHERE id = ?').run(novoVa, mes.id);
+    db.prepare('UPDATE meta_meses SET valor_atual = ? WHERE id = ?').run(calc.novoFixoSaldo, mes.id);
     db.prepare(`
-      INSERT INTO deducoes (meta_id, funcionario_id, valor, motivo, origem, mes_offset, percentual)
-      VALUES (?, ?, ?, ?, 'manual', ?, ?)
-    `).run(meta.id, meta.funcionario_id, vEfetivo, motivo || null, offset, pct);
+      INSERT INTO deducoes (meta_id, funcionario_id, valor, valor_fixo, valor_variavel, motivo, origem, mes_offset, percentual)
+      VALUES (?, ?, ?, ?, ?, ?, 'manual', ?, ?)
+    `).run(meta.id, meta.funcionario_id, calc.vEfetivo, calc.valor_fixo, calc.valor_variavel, motivo || null, offset, pct);
     sincronizarTotaisMeta(meta.id);
   });
   tx();
@@ -1392,8 +1430,8 @@ app.post('/api/deducoes/lote/aplicar', (req, res) => {
 
   const updateMes = db.prepare('UPDATE meta_meses SET valor_atual = ? WHERE meta_id = ? AND mes_offset = ?');
   const insertDed = db.prepare(`
-    INSERT INTO deducoes (meta_id, funcionario_id, valor, motivo, origem, mes_offset, percentual)
-    VALUES (?, ?, ?, ?, 'manual_lote', ?, ?)
+    INSERT INTO deducoes (meta_id, funcionario_id, valor, valor_fixo, valor_variavel, motivo, origem, mes_offset, percentual)
+    VALUES (?, ?, ?, ?, ?, ?, 'manual_lote', ?, ?)
   `);
   const tx = db.transaction(() => {
     for (const item of plano.aplicar) {
@@ -1401,13 +1439,15 @@ app.post('/api/deducoes/lote/aplicar', (req, res) => {
         'SELECT * FROM meta_meses WHERE meta_id = ? AND mes_offset = ?'
       ).get(item.meta_id, item.mes_offset);
       if (!mesRow) continue;
-      const { vEfetivo, novoVa } = calcularDeducaoMes(item.meta_id, mesRow, item.percentual);
-      if (vEfetivo <= 0) continue;
-      updateMes.run(novoVa, item.meta_id, item.mes_offset);
+      const calc = calcularDeducaoMes(item.meta_id, mesRow, item.percentual);
+      if (calc.vEfetivo <= 0) continue;
+      updateMes.run(calc.novoFixoSaldo, item.meta_id, item.mes_offset);
       insertDed.run(
         item.meta_id,
         item.funcionario_id,
-        vEfetivo,
+        calc.vEfetivo,
+        calc.valor_fixo,
+        calc.valor_variavel,
         motivo || null,
         item.mes_offset,
         item.percentual
@@ -1473,8 +1513,8 @@ app.post('/api/deducoes', (req, res) => {
     });
   }
 
-  const { vEfetivo, novoVa } = calcularDeducaoMes(meta.id, mes, pct);
-  if (vEfetivo <= 0) {
+  const calc = calcularDeducaoMes(meta.id, mes, pct);
+  if (calc.vEfetivo <= 0) {
     return res.status(400).json({
       error: 'Não há saldo disponível no mês para esta dedução.',
     });
@@ -1482,11 +1522,11 @@ app.post('/api/deducoes', (req, res) => {
   const valorAnteriorMes = mes.valor_atual;
 
   const tx = db.transaction(() => {
-    db.prepare('UPDATE meta_meses SET valor_atual = ? WHERE id = ?').run(novoVa, mes.id);
+    db.prepare('UPDATE meta_meses SET valor_atual = ? WHERE id = ?').run(calc.novoFixoSaldo, mes.id);
     db.prepare(`
-      INSERT INTO deducoes (meta_id, funcionario_id, valor, motivo, origem, mes_offset, percentual)
-      VALUES (?, ?, ?, ?, 'api', ?, ?)
-    `).run(meta.id, func.id, vEfetivo, motivo || null, offset, pct);
+      INSERT INTO deducoes (meta_id, funcionario_id, valor, valor_fixo, valor_variavel, motivo, origem, mes_offset, percentual)
+      VALUES (?, ?, ?, ?, ?, ?, 'api', ?, ?)
+    `).run(meta.id, func.id, calc.vEfetivo, calc.valor_fixo, calc.valor_variavel, motivo || null, offset, pct);
     sincronizarTotaisMeta(meta.id);
   });
   tx();
@@ -1500,7 +1540,7 @@ app.post('/api/deducoes', (req, res) => {
       titulo: meta.titulo,
       valor_inicial: metaAtualizada.valor_inicial,
       valor_anterior: meta.valor_atual,
-      valor_deduzido: vEfetivo,
+      valor_deduzido: calc.vEfetivo,
       valor_atual: metaAtualizada.valor_atual
     },
     mes: {
@@ -1509,7 +1549,9 @@ app.post('/api/deducoes', (req, res) => {
       mes_ano: mesAnoFromDate(mes.data_mes),
       valor_inicial: mes.valor_inicial,
       valor_anterior: valorAnteriorMes,
-      valor_atual: novoVa
+      valor_atual: calc.novoFixoSaldo,
+      valor_deduzido_fixo: calc.valor_fixo,
+      valor_deduzido_variavel: calc.valor_variavel
     },
     motivo: motivo || null
   });
@@ -1532,7 +1574,8 @@ app.delete('/api/deducoes/:id', (req, res) => {
       'SELECT * FROM meta_meses WHERE meta_id = ? AND mes_offset = ?'
     ).get(meta.id, offset);
     if (mes) {
-      const novoMes = Math.min(mes.valor_inicial, mes.valor_atual + ded.valor);
+      const fixo = ded.valor_fixo != null ? Number(ded.valor_fixo) : Number(ded.valor || 0);
+      const novoMes = Math.min(mes.valor_inicial, mes.valor_atual + fixo);
       db.prepare('UPDATE meta_meses SET valor_atual = ? WHERE id = ?').run(novoMes, mes.id);
     }
     db.prepare('DELETE FROM deducoes WHERE id = ?').run(ded.id);
@@ -1598,13 +1641,6 @@ function registrarVariavelMeta(req, res) {
       INSERT INTO meta_melhorias (meta_id, funcionario_id, mes_offset, quantidade, valor_unitario, valor_total, motivo)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(meta.id, meta.funcionario_id, mesOffset, quantidade, valorUnitario, valorTotal, motivo);
-
-    const novoInicialMes = Math.round((Number(mes.valor_inicial) + valorTotal) * 100) / 100;
-    const novoAtualMes = Math.round((Number(mes.valor_atual) + valorTotal) * 100) / 100;
-    db.prepare('UPDATE meta_meses SET valor_inicial = ?, valor_atual = ? WHERE id = ?')
-      .run(novoInicialMes, novoAtualMes, mes.id);
-
-    sincronizarTotaisMeta(meta.id);
   });
   tx();
 
@@ -1647,28 +1683,15 @@ function atualizarVariavelMeta(req, res) {
     });
   }
 
-  const oldTotal = Math.round(Number(row.valor_total) * 100) / 100;
   const quantidade = Math.max(1, Math.floor(Number(req.body?.quantidade ?? row.quantidade) || 1));
   const valorUnitario = Number(req.body?.valor_unitario ?? row.valor_unitario);
   if (!(valorUnitario > 0)) {
     return res.status(400).json({ error: 'Informe um valor unitário válido' });
   }
   const valorTotal = Math.round((quantidade * valorUnitario) * 100) / 100;
-  const delta = Math.round((valorTotal - oldTotal) * 100) / 100;
   const motivo = req.body?.motivo !== undefined
     ? (String(req.body.motivo || '').trim() || null)
     : row.motivo;
-
-  const mes = db.prepare('SELECT * FROM meta_meses WHERE meta_id = ? AND mes_offset = ?').get(meta.id, row.mes_offset);
-  if (!mes) return res.status(400).json({ error: 'Mês da variável não encontrado' });
-
-  const novoInicialMes = Math.round((Number(mes.valor_inicial) + delta) * 100) / 100;
-  const novoAtualMes = Math.round((Number(mes.valor_atual) + delta) * 100) / 100;
-  if (novoInicialMes < 0 || novoAtualMes < 0) {
-    return res.status(400).json({
-      error: 'A alteração deixa saldo ou alvo do mês inválido. Reduza a quantidade ou o valor unitário.',
-    });
-  }
 
   const tx = db.transaction(() => {
     db.prepare(`
@@ -1676,21 +1699,14 @@ function atualizarVariavelMeta(req, res) {
       SET quantidade = ?, valor_unitario = ?, valor_total = ?, motivo = ?
       WHERE id = ?
     `).run(quantidade, valorUnitario, valorTotal, motivo, melhoriaId);
-
-    db.prepare('UPDATE meta_meses SET valor_inicial = ?, valor_atual = ? WHERE id = ?')
-      .run(novoInicialMes, novoAtualMes, mes.id);
-
-    sincronizarTotaisMeta(meta.id);
   });
   tx();
 
   const metaAtualizada = db.prepare('SELECT * FROM metas WHERE id = ?').get(meta.id);
-  const mesAtualizado = db.prepare('SELECT * FROM meta_meses WHERE id = ?').get(mes.id);
   const atualizado = db.prepare('SELECT * FROM meta_melhorias WHERE id = ?').get(melhoriaId);
   res.json({
     ok: true,
     meta: metaAtualizada,
-    mes: mesAtualizado,
     variavel: atualizado,
     melhoria: atualizado,
   });

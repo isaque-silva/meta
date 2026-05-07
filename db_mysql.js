@@ -141,6 +141,8 @@ CREATE TABLE IF NOT EXISTS deducoes (
   meta_id INT NOT NULL,
   funcionario_id INT NOT NULL,
   valor DECIMAL(12,2) NOT NULL,
+  valor_fixo DECIMAL(12,2) NOT NULL DEFAULT 0,
+  valor_variavel DECIMAL(12,2) NOT NULL DEFAULT 0,
   motivo TEXT NULL,
   origem VARCHAR(30) DEFAULT 'api',
   mes_offset INT NULL,
@@ -235,11 +237,23 @@ if (!colExists('funcionarios', 'unidade')) query('ALTER TABLE funcionarios ADD C
 if (!colExists('funcionarios', 'equipe')) query('ALTER TABLE funcionarios ADD COLUMN equipe VARCHAR(255) NULL');
 if (!colExists('deducoes', 'mes_offset')) query('ALTER TABLE deducoes ADD COLUMN mes_offset INT NULL');
 if (!colExists('deducoes', 'percentual')) query('ALTER TABLE deducoes ADD COLUMN percentual DECIMAL(8,2) NULL');
+if (!colExists('deducoes', 'valor_fixo')) query('ALTER TABLE deducoes ADD COLUMN valor_fixo DECIMAL(12,2) NOT NULL DEFAULT 0');
+if (!colExists('deducoes', 'valor_variavel')) query('ALTER TABLE deducoes ADD COLUMN valor_variavel DECIMAL(12,2) NOT NULL DEFAULT 0');
 if (!colExists('usuarios', 'ativo')) query("ALTER TABLE usuarios ADD COLUMN ativo TINYINT(1) NOT NULL DEFAULT 1");
 if (!colExists('usuarios', 'tipo_acesso')) query("ALTER TABLE usuarios ADD COLUMN tipo_acesso VARCHAR(20) NOT NULL DEFAULT 'operador'");
 if (!colExists('usuarios', 'oculto_painel')) query("ALTER TABLE usuarios ADD COLUMN oculto_painel TINYINT(1) NOT NULL DEFAULT 0");
 if (!colExists('usuarios', 'funcionario_id')) query('ALTER TABLE usuarios ADD COLUMN funcionario_id INT NULL');
 if (!colExists('usuarios', 'permissoes')) query('ALTER TABLE usuarios ADD COLUMN permissoes LONGTEXT NULL');
+
+// Backfill (legado): valor total era fixo
+try {
+  query(`
+    UPDATE deducoes
+    SET valor_fixo = COALESCE(NULLIF(valor_fixo, 0), valor),
+        valor_variavel = COALESCE(valor_variavel, 0)
+    WHERE (valor_fixo IS NULL OR valor_fixo = 0) AND valor IS NOT NULL
+  `);
+} catch {}
 
 query("INSERT IGNORE INTO configuracoes (chave, valor) VALUES ('tipo_meta_periodo', 'trimestral')");
 
