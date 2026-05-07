@@ -1296,7 +1296,9 @@ function montarPlanoDeducaoLote({ cargo, unidade, equipe, periodo, mes_ano, perc
       });
       continue;
     }
-    if (Number(mes.valor_atual) <= 0) {
+    const calc = calcularDeducaoMes(m.meta_id, mes, pct);
+    const saldoDisponivelMes = Math.max(0, Number(calc.fixoSaldo || 0) + Number(calc.varSaldo || 0));
+    if (saldoDisponivelMes <= 0) {
       ignoradas.push({
         funcionario_id: m.funcionario_id,
         funcionario_nome: m.funcionario_nome,
@@ -1306,8 +1308,6 @@ function montarPlanoDeducaoLote({ cargo, unidade, equipe, periodo, mes_ano, perc
       });
       continue;
     }
-
-    const calc = calcularDeducaoMes(m.meta_id, mes, pct);
     const valorAnterior = Number(mes.valor_atual);
     aplicar.push({
       funcionario_id: m.funcionario_id,
@@ -1378,13 +1378,14 @@ app.post('/api/metas/:id/deducoes', (req, res) => {
     'SELECT * FROM meta_meses WHERE meta_id = ? AND mes_offset = ?'
   ).get(meta.id, offset);
   if (!mes) return res.status(400).json({ error: 'Mês inválido para esta meta' });
-  if (Number(mes.valor_atual) <= 0) {
+
+  const calc = calcularDeducaoMes(meta.id, mes, pct);
+  const saldoDisponivel = Math.max(0, Number(calc.fixoSaldo || 0) + Number(calc.varSaldo || 0));
+  if (saldoDisponivel <= 0) {
     return res.status(400).json({
       error: 'O mês selecionado já está zerado. Selecione outro mês do período com saldo disponível.'
     });
   }
-
-  const calc = calcularDeducaoMes(meta.id, mes, pct);
   if (calc.vEfetivo <= 0) {
     return res.status(400).json({
       error: 'Não há saldo disponível no mês para esta dedução.',
@@ -1519,13 +1520,14 @@ app.post('/api/deducoes', (req, res) => {
     'SELECT * FROM meta_meses WHERE meta_id = ? AND mes_offset = ?'
   ).get(meta.id, offset);
   if (!mes) return res.status(400).json({ error: 'Mês inválido para esta meta' });
-  if (Number(mes.valor_atual) <= 0) {
+
+  const calc = calcularDeducaoMes(meta.id, mes, pct);
+  const saldoDisponivel = Math.max(0, Number(calc.fixoSaldo || 0) + Number(calc.varSaldo || 0));
+  if (saldoDisponivel <= 0) {
     return res.status(400).json({
       error: 'O mês selecionado já está zerado. Selecione outro mês do período com saldo disponível.'
     });
   }
-
-  const calc = calcularDeducaoMes(meta.id, mes, pct);
   if (calc.vEfetivo <= 0) {
     return res.status(400).json({
       error: 'Não há saldo disponível no mês para esta dedução.',
