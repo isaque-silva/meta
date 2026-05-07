@@ -925,9 +925,19 @@ async function loadMetas() {
 
   const tbody = document.getElementById('tbl-metas');
   tbody.innerHTML = rows.length ? rows.map(m => {
-    const pct = m.valor_inicial > 0 ? (m.valor_atual / m.valor_inicial) * 100 : 0;
-    const deduzido = Math.max(0, m.valor_inicial - m.valor_atual);
-    const dedPct = m.valor_inicial > 0 ? (deduzido / m.valor_inicial) * 100 : 0;
+    const totalVarRow = Number(m.total_variavel || 0);
+    const totalDedVarRow = Number(m.total_deduzido_variavel || 0);
+    const totalDedRow = Number(
+      m.total_deduzido != null
+        ? m.total_deduzido
+        : (Number(m.valor_inicial || 0) - Number(m.valor_atual || 0)) + totalDedVarRow
+    );
+    const alvoTotal = Math.max(0, Math.round((Number(m.valor_inicial || 0) + totalVarRow) * 100) / 100);
+    const saldoVarRow = Math.max(0, Math.round((totalVarRow - totalDedVarRow) * 100) / 100);
+    const saldoTotal = Math.max(0, Math.round((Number(m.valor_atual || 0) + saldoVarRow) * 100) / 100);
+    const pct = alvoTotal > 0 ? (saldoTotal / alvoTotal) * 100 : 0;
+    const deduzido = Math.max(0, totalDedRow);
+    const dedPct = alvoTotal > 0 ? (deduzido / alvoTotal) * 100 : 0;
     const st = deriveStatus(m);
     const resultChip = m.resultado ? `<span class="chip chip-${m.resultado}">${m.resultado.replace('_',' ')}</span>` : '';
     return `
@@ -953,8 +963,8 @@ async function loadMetas() {
           <div class="progress-wrap">
             <div class="progress"><div class="progress-bar ${progressBarClass(pct)}" style="width:${Math.min(100, Math.max(0,pct))}%"></div></div>
             <div class="progress-meta">
-              <b>${isOperador() ? fmtPctGlobal(pct) : fmtBRL(m.valor_atual)}</b>
-              <span>${isOperador() ? '100%' : fmtBRL(m.valor_inicial)}</span>
+              <b>${isOperador() ? fmtPctGlobal(pct) : fmtBRL(saldoTotal)}</b>
+              <span>${isOperador() ? '100%' : fmtBRL(alvoTotal)}</span>
             </div>
           </div>
         </td>
@@ -1199,8 +1209,18 @@ document.getElementById('btn-nova-meta').onclick = async () => {
 
 window.verMeta = async id => {
   const m = await api(`/api/metas/${id}`);
-  const pct = m.valor_inicial > 0 ? (m.valor_atual / m.valor_inicial) * 100 : 0;
-  const dedPctTotal = 100 - pct;
+  const totalVariavelMeta = Number(m.total_variavel || 0);
+  const totalDeduzidoVarMeta = Number(m.total_deduzido_variavel || 0);
+  const totalDeduzidoMeta = Number(
+    m.total_deduzido != null
+      ? m.total_deduzido
+      : (Number(m.valor_inicial || 0) - Number(m.valor_atual || 0)) + totalDeduzidoVarMeta
+  );
+  const alvoTotalMeta = Math.max(0, Math.round((Number(m.valor_inicial || 0) + totalVariavelMeta) * 100) / 100);
+  const saldoVariavelMeta = Math.max(0, Math.round((totalVariavelMeta - totalDeduzidoVarMeta) * 100) / 100);
+  const saldoTotalMeta = Math.max(0, Math.round((Number(m.valor_atual || 0) + saldoVariavelMeta) * 100) / 100);
+  const pct = alvoTotalMeta > 0 ? (saldoTotalMeta / alvoTotalMeta) * 100 : 0;
+  const dedPctTotal = alvoTotalMeta > 0 ? (totalDeduzidoMeta / alvoTotalMeta) * 100 : 0;
   const st = m.status === 'fechada'
     ? { chip: `chip-${m.resultado || 'fechada'}`, label: m.resultado ? m.resultado.replace('_',' ') : 'Fechada' }
     : deriveStatus(m);
@@ -1347,18 +1367,18 @@ window.verMeta = async id => {
 
     <div class="progress" style="margin-top:14px"><div class="progress-bar ${progressBarClass(pct)}" style="width:${Math.min(100,Math.max(0,pct))}%"></div></div>
     <div class="progress-meta" style="margin-top:6px">
-      <b>${isOperador() ? fmtPctGlobal(pct) : fmtBRL(m.valor_atual)}</b>
-      <span>${isOperador() ? 'Saldo restante da meta' : `Alvo: ${fmtBRL(m.valor_inicial)} · ${pct.toFixed(1)}%`}</span>
+      <b>${isOperador() ? fmtPctGlobal(pct) : fmtBRL(saldoTotalMeta)}</b>
+      <span>${isOperador() ? 'Saldo restante da meta' : `Alvo: ${fmtBRL(alvoTotalMeta)} · ${pct.toFixed(1)}%`}</span>
     </div>
 
     <div class="drawer-section">
       <h4>Detalhes</h4>
       <div class="detail-row"><span class="k">Período</span><span class="v">${fmtDate(m.data_inicio)} → ${fmtDate(m.data_fim)}</span></div>
       <div class="detail-row"><span class="k">Trimestre</span><span class="v">${quarterOf(m.data_inicio)}</span></div>
-      <div class="detail-row"><span class="k">Valor-alvo</span><span class="v">${isOperador() ? '100%' : fmtBRL(m.valor_inicial)}</span></div>
-      <div class="detail-row"><span class="k">Saldo atual</span><span class="v">${isOperador() ? fmtPctGlobal(pct) : fmtBRL(m.valor_atual)}</span></div>
-      <div class="detail-row"><span class="k">Total deduzido</span><span class="v" style="color:var(--danger)">${isOperador() ? fmtPctGlobal(dedPctTotal) : fmtBRL(m.valor_inicial - m.valor_atual)}</span></div>
-      <div class="detail-row"><span class="k">Ganho variável no período</span><span class="v" style="color:var(--success)">${isOperador() ? `${Number(m.total_variaveis || m.total_melhorias || 0)}` : `+${fmtBRL(Number(m.total_variavel || 0))}`}</span></div>
+      <div class="detail-row"><span class="k">Valor-alvo</span><span class="v">${isOperador() ? '100%' : `${fmtBRL(alvoTotalMeta)}${totalVariavelMeta > 0 ? ` <span class="muted" style="font-weight:400;font-size:12px">(fixo ${fmtBRL(m.valor_inicial)} + var ${fmtBRL(totalVariavelMeta)})</span>` : ''}`}</span></div>
+      <div class="detail-row"><span class="k">Saldo atual</span><span class="v">${isOperador() ? fmtPctGlobal(pct) : `${fmtBRL(saldoTotalMeta)}${totalVariavelMeta > 0 ? ` <span class="muted" style="font-weight:400;font-size:12px">(fixo ${fmtBRL(m.valor_atual)} + var ${fmtBRL(saldoVariavelMeta)})</span>` : ''}`}</span></div>
+      <div class="detail-row"><span class="k">Total deduzido</span><span class="v" style="color:var(--danger)">${isOperador() ? fmtPctGlobal(dedPctTotal) : `−${fmtBRL(totalDeduzidoMeta)}${totalDeduzidoVarMeta > 0 ? ` <span class="muted" style="font-weight:400;font-size:12px;color:var(--muted)">(fixo ${fmtBRL(Math.max(0, totalDeduzidoMeta - totalDeduzidoVarMeta))} + var ${fmtBRL(totalDeduzidoVarMeta)})</span>` : ''}`}</span></div>
+      <div class="detail-row"><span class="k">Ganho variável no período</span><span class="v" style="color:var(--success)">${isOperador() ? `${Number(m.total_variaveis || m.total_melhorias || 0)}` : `+${fmtBRL(totalVariavelMeta)}`}</span></div>
       ${m.data_fechamento ? `<div class="detail-row"><span class="k">Fechada em</span><span class="v">${fmtDateTime(m.data_fechamento)}</span></div>` : ''}
       ${m.observacao_fechamento ? `<div class="detail-row"><span class="k">Observação</span><span class="v">${escapeHtml(m.observacao_fechamento)}</span></div>` : ''}
     </div>

@@ -836,7 +836,13 @@ app.delete('/api/funcionarios/:id', (req, res) => {
 app.get('/api/metas', (req, res) => {
   const { funcionario_id, status } = req.query;
   let sql = `
-    SELECT m.*, f.nome AS funcionario_nome, f.usuario AS funcionario_usuario
+    SELECT m.*,
+           f.nome AS funcionario_nome,
+           f.usuario AS funcionario_usuario,
+           (SELECT COALESCE(SUM(d.valor),0)          FROM deducoes d        WHERE d.meta_id = m.id) AS total_deduzido,
+           (SELECT COALESCE(SUM(d.valor_fixo),0)     FROM deducoes d        WHERE d.meta_id = m.id) AS total_deduzido_fixo,
+           (SELECT COALESCE(SUM(d.valor_variavel),0) FROM deducoes d        WHERE d.meta_id = m.id) AS total_deduzido_variavel,
+           (SELECT COALESCE(SUM(mx.valor_total),0)   FROM meta_melhorias mx WHERE mx.meta_id = m.id) AS total_variavel
     FROM metas m JOIN funcionarios f ON f.id = m.funcionario_id
     WHERE 1=1
   `;
@@ -898,6 +904,9 @@ app.get('/api/metas/:id', (req, res) => {
 
   const totalVariavel = variaveis.reduce((s, x) => s + (Number(x.valor_total) || 0), 0);
   const totalVariaveis = variaveis.reduce((s, x) => s + (Number(x.quantidade) || 0), 0);
+  const totalDeduzido = deducoes.reduce((s, x) => s + (Number(x.valor) || 0), 0);
+  const totalDeduzidoFixo = deducoes.reduce((s, x) => s + (Number(x.valor_fixo) || 0), 0);
+  const totalDeduzidoVariavel = deducoes.reduce((s, x) => s + (Number(x.valor_variavel) || 0), 0);
 
   res.json({
     ...meta,
@@ -907,6 +916,9 @@ app.get('/api/metas/:id', (req, res) => {
     total_variavel: totalVariavel,
     total_variaveis: totalVariaveis,
     total_melhorias: totalVariaveis,
+    total_deduzido: totalDeduzido,
+    total_deduzido_fixo: totalDeduzidoFixo,
+    total_deduzido_variavel: totalDeduzidoVariavel,
     meses: mesesRows
   });
 });
@@ -1752,7 +1764,10 @@ app.get('/api/fechamentos/preview', (req, res) => {
   // Compara por ano-mês para incluir metas criadas em qualquer dia do mês.
   // Só considera metas ainda não cobertas por fechamentos anteriores.
   const metas = db.prepare(`
-    SELECT m.*, f.nome AS funcionario_nome, f.usuario AS funcionario_usuario, f.cargo AS funcionario_cargo
+    SELECT m.*, f.nome AS funcionario_nome, f.usuario AS funcionario_usuario, f.cargo AS funcionario_cargo,
+           (SELECT COALESCE(SUM(d.valor),0)          FROM deducoes d        WHERE d.meta_id = m.id) AS total_deduzido_meta,
+           (SELECT COALESCE(SUM(d.valor_variavel),0) FROM deducoes d        WHERE d.meta_id = m.id) AS total_deduzido_variavel_meta,
+           (SELECT COALESCE(SUM(mx.valor_total),0)   FROM meta_melhorias mx WHERE mx.meta_id = m.id) AS total_variavel_meta
     FROM metas m JOIN funcionarios f ON f.id = m.funcionario_id
     WHERE strftime('%Y-%m', m.data_inicio) = ?
       AND NOT EXISTS (
@@ -1779,10 +1794,19 @@ app.get('/api/fechamentos/preview', (req, res) => {
       };
     }
     const f = porFunc[m.funcionario_id];
+    const variavelMeta = Number(m.total_variavel_meta || 0);
+    const deduzidoMeta = Number(m.total_deduzido_meta || 0);
+    const deduzidoVarMeta = Number(m.total_deduzido_variavel_meta || 0);
+    const alvoMeta = Number(m.valor_inicial || 0) + variavelMeta;
+    const saldoVarMeta = Math.max(0, variavelMeta - deduzidoVarMeta);
+    const aReceberMeta = Number(m.valor_atual || 0) + saldoVarMeta;
+    m.alvo_total = alvoMeta;
+    m.saldo_total = aReceberMeta;
+    m.total_deduzido = deduzidoMeta;
     f.metas.push(m);
-    f.total_alvo += m.valor_inicial;
-    f.total_deduzido += (m.valor_inicial - m.valor_atual);
-    f.total_a_receber += m.valor_atual;
+    f.total_alvo += alvoMeta;
+    f.total_deduzido += deduzidoMeta;
+    f.total_a_receber += aReceberMeta;
     if (m.status === 'aberta') f.metas_abertas++; else f.metas_fechadas++;
   }
   const funcionarios = Object.values(porFunc);
@@ -1844,7 +1868,10 @@ app.post('/api/fechamentos', (req, res) => {
   // Gera fechamento apenas para metas do período que ainda não foram
   // incluídas em fechamentos anteriores.
   const metas = db.prepare(`
-    SELECT m.*, f.nome AS funcionario_nome, f.usuario AS funcionario_usuario, f.cargo AS funcionario_cargo
+    SELECT m.*, f.nome AS funcionario_nome, f.usuario AS funcionario_usuario, f.cargo AS funcionario_cargo,
+           (SELECT COALESCE(SUM(d.valor),0)          FROM deducoes d        WHERE d.meta_id = m.id) AS total_deduzido_meta,
+           (SELECT COALESCE(SUM(d.valor_variavel),0) FROM deducoes d        WHERE d.meta_id = m.id) AS total_deduzido_variavel_meta,
+           (SELECT COALESCE(SUM(mx.valor_total),0)   FROM meta_melhorias mx WHERE mx.meta_id = m.id) AS total_variavel_meta
     FROM metas m JOIN funcionarios f ON f.id = m.funcionario_id
     WHERE strftime('%Y-%m', m.data_inicio) = ?
       AND NOT EXISTS (
@@ -1859,9 +1886,15 @@ app.post('/api/fechamentos', (req, res) => {
     });
   }
 
-  const total_alvo = metas.reduce((s, x) => s + x.valor_inicial, 0);
-  const total_a_receber = metas.reduce((s, x) => s + x.valor_atual, 0);
-  const total_deduzido = total_alvo - total_a_receber;
+  for (const x of metas) {
+    x.alvo_total = Number(x.valor_inicial || 0) + Number(x.total_variavel_meta || 0);
+    x.saldo_total = Number(x.valor_atual || 0)
+      + Math.max(0, Number(x.total_variavel_meta || 0) - Number(x.total_deduzido_variavel_meta || 0));
+    x.deduzido_total = Number(x.total_deduzido_meta || 0);
+  }
+  const total_alvo = metas.reduce((s, x) => s + x.alvo_total, 0);
+  const total_a_receber = metas.reduce((s, x) => s + x.saldo_total, 0);
+  const total_deduzido = metas.reduce((s, x) => s + x.deduzido_total, 0);
   const funcUnicos = new Set(metas.map(x => x.funcionario_id));
 
   const tx = db.transaction(() => {
@@ -1902,7 +1935,7 @@ app.post('/api/fechamentos', (req, res) => {
       insertItem.run(
         fechamentoId, x.id, x.funcionario_id, x.funcionario_nome, x.funcionario_usuario, x.funcionario_cargo,
         x.titulo, x.descricao, x.data_inicio, x.data_fim,
-        x.valor_inicial, x.valor_atual, x.valor_inicial - x.valor_atual, nDed, x.resultado
+        x.alvo_total, x.saldo_total, x.deduzido_total, nDed, x.resultado
       );
     }
     return fechamentoId;
@@ -1973,12 +2006,38 @@ app.get('/api/dashboard', (req, res) => {
   const metasFechadas = db.prepare("SELECT COUNT(*) c FROM metas WHERE status='fechada'").get().c;
   const totais = db.prepare(`
     SELECT
-      COALESCE(SUM(valor_inicial),0) AS total_inicial,
-      COALESCE(SUM(valor_atual),0) AS total_atual
-    FROM metas WHERE status='aberta'
+      COALESCE(SUM(m.valor_inicial),0) AS total_inicial_fixo,
+      COALESCE(SUM(m.valor_atual),0)   AS total_atual_fixo,
+      COALESCE((SELECT SUM(mx.valor_total)
+                  FROM meta_melhorias mx JOIN metas mm ON mm.id = mx.meta_id
+                 WHERE mm.status='aberta'), 0) AS total_variavel_abertas,
+      COALESCE((SELECT SUM(d.valor)
+                  FROM deducoes d JOIN metas mm ON mm.id = d.meta_id
+                 WHERE mm.status='aberta'), 0) AS total_deduzido_abertas,
+      COALESCE((SELECT SUM(d.valor_variavel)
+                  FROM deducoes d JOIN metas mm ON mm.id = d.meta_id
+                 WHERE mm.status='aberta'), 0) AS total_deduzido_variavel_abertas
+    FROM metas m WHERE m.status='aberta'
   `).get();
-  const totalDeduzidoAbertas = totais.total_inicial - totais.total_atual;
-  res.json({ totalFunc, metasAbertas, metasFechadas, ...totais, totalDeduzidoAbertas });
+  const totalInicialFixo = Number(totais.total_inicial_fixo || 0);
+  const totalAtualFixo = Number(totais.total_atual_fixo || 0);
+  const totalVariavelAbertas = Number(totais.total_variavel_abertas || 0);
+  const totalDeduzidoVarAbertas = Number(totais.total_deduzido_variavel_abertas || 0);
+  const totalDeduzidoAbertas = Number(totais.total_deduzido_abertas || 0);
+  const total_inicial = Math.max(0, totalInicialFixo + totalVariavelAbertas);
+  const total_atual = Math.max(0, totalAtualFixo + Math.max(0, totalVariavelAbertas - totalDeduzidoVarAbertas));
+  res.json({
+    totalFunc,
+    metasAbertas,
+    metasFechadas,
+    total_inicial,
+    total_atual,
+    total_inicial_fixo: totalInicialFixo,
+    total_atual_fixo: totalAtualFixo,
+    total_variavel_abertas: totalVariavelAbertas,
+    total_deduzido_variavel_abertas: totalDeduzidoVarAbertas,
+    totalDeduzidoAbertas
+  });
 });
 
 app.listen(PORT, () => {
