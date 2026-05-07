@@ -543,7 +543,6 @@ async function loadFuncionarios() {
       </td>
       <td><code style="font-size:12.5px;color:var(--text-soft)">@${escapeHtml(f.usuario)}</code></td>
       <td>${escapeHtml(f.cargo || '-')}</td>
-      <td>${escapeHtml(f.unidade || '-')}</td>
       <td>${escapeHtml(f.equipe || '-')}</td>
       <td style="text-align:right">${f.valor_meta_mensal > 0 ? `<b>${fmtBRL(f.valor_meta_mensal)}</b>` : '<span class="muted">—</span>'}</td>
       <td>${countByFunc[f.id] ? `<span class="tag tag-quarter">${countByFunc[f.id]} ativa(s)</span>` : '<span class="muted">—</span>'}</td>
@@ -554,7 +553,7 @@ async function loadFuncionarios() {
         ${(!canEditFuncionario() && !canDeleteFuncionario()) ? '<span class="muted">Somente leitura</span>' : ''}
       </td>
     </tr>
-  `).join('') : `<tr class="empty-row"><td colspan="9">Nenhum funcionário cadastrado. Clique em "Novo funcionário" para começar.</td></tr>`;
+  `).join('') : `<tr class="empty-row"><td colspan="8">Nenhum funcionário cadastrado. Clique em "Novo funcionário" para começar.</td></tr>`;
 }
 
 function funcFormBody(f = {}) {
@@ -564,10 +563,7 @@ function funcFormBody(f = {}) {
       <div class="field"><label>Usuário (único, sem espaços)</label><input id="f-usuario" placeholder="joao.silva" value="${escapeHtml(f.usuario || '')}"/></div>
       <div class="field"><label>Cargo</label><input id="f-cargo" placeholder="Ex: Analista" value="${escapeHtml(f.cargo || '')}"/></div>
     </div>
-    <div class="form-grid-2">
-      <div class="field"><label>Unidade</label><input id="f-unidade" placeholder="Ex: Matriz" value="${escapeHtml(f.unidade || '')}"/></div>
-      <div class="field"><label>Equipe</label><input id="f-equipe" placeholder="Ex: Equipe A" value="${escapeHtml(f.equipe || '')}"/></div>
-    </div>
+    <div class="field"><label>Equipe</label><input id="f-equipe" placeholder="Ex: Equipe A" value="${escapeHtml(f.equipe || '')}"/></div>
     <div class="field">
       <label>Valor base da meta mensal (R$)</label>
       <input id="f-valor-mensal" type="number" step="0.01" min="0" placeholder="0,00" value="${f.valor_meta_mensal || ''}"/>
@@ -628,7 +624,6 @@ function parseFuncionariosCsv(csvText) {
   const idxNome = headers.findIndex(h => h === 'nome' || h === 'nome completo');
   const idxUsuario = headers.findIndex(h => h === 'usuario' || h === 'login');
   const idxCargo = headers.findIndex(h => h === 'cargo' || h === 'funcao');
-  const idxUnidade = headers.findIndex(h => h === 'unidade' || h === 'filial');
   const idxEquipe = headers.findIndex(h => h === 'equipe' || h === 'time');
   const idxMeta = headers.findIndex(h =>
     h === 'valor_meta_mensal' || h === 'valor meta mensal' || h === 'meta_mensal' || h === 'meta mensal'
@@ -650,7 +645,6 @@ function parseFuncionariosCsv(csvText) {
     const nome = String(cols[idxNome] || '').trim();
     const usuario = String(cols[idxUsuario] || '').trim().toLowerCase();
     const cargo = idxCargo >= 0 ? String(cols[idxCargo] || '').trim() : '';
-    const unidade = idxUnidade >= 0 ? String(cols[idxUnidade] || '').trim() : '';
     const equipe = idxEquipe >= 0 ? String(cols[idxEquipe] || '').trim() : '';
     const brutoMeta = idxMeta >= 0 ? String(cols[idxMeta] || '').trim() : '';
     const valorMeta = brutoMeta
@@ -664,7 +658,6 @@ function parseFuncionariosCsv(csvText) {
       nome,
       usuario,
       cargo,
-      unidade,
       equipe,
       valor_meta_mensal: Number.isFinite(valorMeta) ? Math.max(0, valorMeta) : 0,
       valor_unitario_variavel: Number.isFinite(valorVarUnit) ? Math.max(0, valorVarUnit) : 0,
@@ -688,7 +681,6 @@ document.getElementById('btn-novo-func').onclick = () => {
         nome: document.getElementById('f-nome').value,
         usuario: document.getElementById('f-usuario').value,
         cargo: document.getElementById('f-cargo').value,
-        unidade: document.getElementById('f-unidade').value,
         equipe: document.getElementById('f-equipe').value,
         valor_meta_mensal: Number(document.getElementById('f-valor-mensal').value) || 0,
         valor_unitario_variavel: Number(document.getElementById('f-valor-unit-variavel').value) || 0,
@@ -701,9 +693,9 @@ document.getElementById('btn-novo-func').onclick = () => {
 
 function downloadFuncionariosCsvTemplate() {
   const csv = [
-    'nome;usuario;cargo;unidade;equipe;valor_meta_mensal;valor_unitario_variavel',
-    'Joao Silva;joao.silva;Analista;Matriz;Equipe A;1500,00;80,00',
-    'Maria Souza;maria.souza;Supervisora;Filial Sul;Equipe B;2200,00;100,00',
+    'nome;usuario;cargo;equipe;valor_meta_mensal;valor_unitario_variavel',
+    'Joao Silva;joao.silva;Analista;Equipe A;1500,00;80,00',
+    'Maria Souza;maria.souza;Supervisora;Equipe B;2200,00;100,00',
   ].join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const a = document.createElement('a');
@@ -722,16 +714,16 @@ document.getElementById('btn-import-func-csv').onclick = () => {
       <div style="font-weight:600;margin-bottom:6px">Instruções do arquivo CSV</div>
       <ul style="margin:0;padding-left:18px;color:var(--muted);font-size:13px;line-height:1.55">
         <li>Use as colunas: <b>nome</b> e <b>usuario</b> (obrigatórias).</li>
-        <li>Colunas opcionais: <b>cargo</b>, <b>unidade</b>, <b>equipe</b>, <b>valor_meta_mensal</b> e <b>valor_unitario_variavel</b>.</li>
+        <li>Colunas opcionais: <b>cargo</b>, <b>equipe</b>, <b>valor_meta_mensal</b> e <b>valor_unitario_variavel</b>.</li>
         <li>Separador aceito: <b>;</b> ou <b>,</b>.</li>
         <li>O campo <b>usuario</b> deve ser único e sem espaços.</li>
       </ul>
     </div>
 
     <div style="background:#0f172a;color:#e2e8f0;border-radius:10px;padding:10px 12px;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-size:12px;margin-bottom:14px;overflow:auto">
-nome;usuario;cargo;unidade;equipe;valor_meta_mensal;valor_unitario_variavel
-Joao Silva;joao.silva;Analista;Matriz;Equipe A;1500,00;80,00
-Maria Souza;maria.souza;Supervisora;Filial Sul;Equipe B;2200,00;100,00
+nome;usuario;cargo;equipe;valor_meta_mensal;valor_unitario_variavel
+Joao Silva;joao.silva;Analista;Equipe A;1500,00;80,00
+Maria Souza;maria.souza;Supervisora;Equipe B;2200,00;100,00
     </div>
 
     <div class="drawer-actions">
@@ -802,7 +794,6 @@ window.editFunc = async id => {
         nome: document.getElementById('f-nome').value,
         usuario: document.getElementById('f-usuario').value,
         cargo: document.getElementById('f-cargo').value,
-        unidade: document.getElementById('f-unidade').value,
         equipe: document.getElementById('f-equipe').value,
         valor_meta_mensal: Number(document.getElementById('f-valor-mensal').value) || 0,
         valor_unitario_variavel: Number(document.getElementById('f-valor-unit-variavel').value) || 0,
@@ -1868,7 +1859,6 @@ document.getElementById('btn-deducao-lote').onclick = async () => {
   if (!hasUserPermission('deducao_gerar')) return toast('Sem permissão para dedução em lote', 'error');
   const funcs = await api('/api/funcionarios');
   const cargos = uniqueSortedValues(funcs, 'cargo');
-  const unidades = uniqueSortedValues(funcs, 'unidade');
   const equipes = uniqueSortedValues(funcs, 'equipe');
   const now = new Date();
   const metaMonths = currentMetaPeriodMonths();
@@ -1899,21 +1889,14 @@ document.getElementById('btn-deducao-lote').onclick = async () => {
         </select>
       </div>
       <div class="field">
-        <label>Unidade</label>
-        <select id="dl-unidade" class="select" style="width:100%">
-          <option value="">Todas</option>
-          ${unidades.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('')}
-        </select>
-      </div>
-    </div>
-    <div class="form-grid-2">
-      <div class="field">
         <label>Equipe</label>
         <select id="dl-equipe" class="select" style="width:100%">
           <option value="">Todas</option>
           ${equipes.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('')}
         </select>
       </div>
+    </div>
+    <div class="form-grid-2">
       <div class="field">
         <label>Período da meta (${metaMonths} ${metaMonths === 1 ? 'mês' : 'meses'} · ${periodLabel})</label>
         <div class="form-grid-2">
@@ -1992,7 +1975,6 @@ document.getElementById('btn-deducao-lote').onclick = async () => {
 
   const buildPayload = () => ({
     cargo: document.getElementById('dl-cargo').value || undefined,
-    unidade: document.getElementById('dl-unidade').value || undefined,
     equipe: document.getElementById('dl-equipe').value || undefined,
     periodo: toMesAno(Number(anoEl.value), resolveStartMonth()),
     mes_ano: String(mesAnoEl.value || '').trim() || null,

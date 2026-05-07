@@ -79,7 +79,6 @@ CREATE TABLE IF NOT EXISTS funcionarios (
   nome VARCHAR(255) NOT NULL,
   usuario VARCHAR(255) NOT NULL UNIQUE,
   cargo VARCHAR(255) NULL,
-  unidade VARCHAR(255) NULL,
   equipe VARCHAR(255) NULL,
   valor_meta_mensal DECIMAL(12,2) NOT NULL DEFAULT 0,
   criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -233,8 +232,10 @@ createIndexIfMissing('usuarios', 'idx_users_usuario', 'usuario');
 
 if (!colExists('funcionarios', 'valor_meta_mensal')) query('ALTER TABLE funcionarios ADD COLUMN valor_meta_mensal DECIMAL(12,2) NOT NULL DEFAULT 0');
 if (!colExists('funcionarios', 'valor_unitario_variavel')) query('ALTER TABLE funcionarios ADD COLUMN valor_unitario_variavel DECIMAL(12,2) NOT NULL DEFAULT 0');
-if (!colExists('funcionarios', 'unidade')) query('ALTER TABLE funcionarios ADD COLUMN unidade VARCHAR(255) NULL');
 if (!colExists('funcionarios', 'equipe')) query('ALTER TABLE funcionarios ADD COLUMN equipe VARCHAR(255) NULL');
+if (colExists('funcionarios', 'unidade')) {
+  try { query('ALTER TABLE funcionarios DROP COLUMN unidade'); } catch (e) { /* coluna já removida */ }
+}
 if (!colExists('deducoes', 'mes_offset')) query('ALTER TABLE deducoes ADD COLUMN mes_offset INT NULL');
 if (!colExists('deducoes', 'percentual')) query('ALTER TABLE deducoes ADD COLUMN percentual DECIMAL(14,11) NULL');
 try { query('ALTER TABLE deducoes MODIFY COLUMN percentual DECIMAL(14,11) NULL'); } catch (e) { /* já está no tipo correto */ }

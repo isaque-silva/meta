@@ -700,16 +700,15 @@ app.get('/api/funcionarios', (req, res) => {
 });
 
 app.post('/api/funcionarios', (req, res) => {
-  const { nome, usuario, cargo, unidade, equipe, valor_meta_mensal, valor_unitario_variavel } = req.body || {};
+  const { nome, usuario, cargo, equipe, valor_meta_mensal, valor_unitario_variavel } = req.body || {};
   if (!nome || !usuario) return res.status(400).json({ error: 'nome e usuario são obrigatórios' });
   try {
     const info = db.prepare(
-      'INSERT INTO funcionarios (nome, usuario, cargo, unidade, equipe, valor_meta_mensal, valor_unitario_variavel) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO funcionarios (nome, usuario, cargo, equipe, valor_meta_mensal, valor_unitario_variavel) VALUES (?, ?, ?, ?, ?, ?)'
     ).run(
       nome.trim(),
       usuario.trim().toLowerCase(),
       cargo || null,
-      unidade || null,
       equipe || null,
       Number(valor_meta_mensal) || 0,
       Math.max(0, Number(valor_unitario_variavel) || 0)
@@ -729,7 +728,7 @@ app.post('/api/funcionarios/importar', (req, res) => {
 
   const usuarioExiste = db.prepare('SELECT 1 FROM funcionarios WHERE usuario = ? LIMIT 1');
   const inserir = db.prepare(
-    'INSERT INTO funcionarios (nome, usuario, cargo, unidade, equipe, valor_meta_mensal, valor_unitario_variavel) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO funcionarios (nome, usuario, cargo, equipe, valor_meta_mensal, valor_unitario_variavel) VALUES (?, ?, ?, ?, ?, ?)'
   );
 
   const criados = [];
@@ -741,7 +740,6 @@ app.post('/api/funcionarios/importar', (req, res) => {
       const nome = String(item?.nome || '').trim();
       const usuario = String(item?.usuario || '').trim().toLowerCase();
       const cargo = String(item?.cargo || '').trim() || null;
-      const unidade = String(item?.unidade || '').trim() || null;
       const equipe = String(item?.equipe || '').trim() || null;
       const valorMetaMensal = Number(item?.valor_meta_mensal) || 0;
       const valorUnitVar = Math.max(0, Number(item?.valor_unitario_variavel) || 0);
@@ -764,13 +762,12 @@ app.post('/api/funcionarios/importar', (req, res) => {
         ignorados.push({ nome, usuario, motivo: 'usuário já cadastrado' });
         continue;
       }
-      const info = inserir.run(nome, usuario, cargo, unidade, equipe, Math.max(0, valorMetaMensal), valorUnitVar);
+      const info = inserir.run(nome, usuario, cargo, equipe, Math.max(0, valorMetaMensal), valorUnitVar);
       criados.push({
         id: info.lastInsertRowid,
         nome,
         usuario,
         cargo,
-        unidade,
         equipe,
         valor_meta_mensal: Math.max(0, valorMetaMensal),
         valor_unitario_variavel: valorUnitVar,
@@ -795,7 +792,7 @@ app.post('/api/funcionarios/importar', (req, res) => {
 });
 
 app.put('/api/funcionarios/:id', (req, res) => {
-  const { nome, usuario, cargo, unidade, equipe, valor_meta_mensal, valor_unitario_variavel } = req.body || {};
+  const { nome, usuario, cargo, equipe, valor_meta_mensal, valor_unitario_variavel } = req.body || {};
   const vmm = (valor_meta_mensal === undefined || valor_meta_mensal === null || valor_meta_mensal === '')
     ? null : Number(valor_meta_mensal);
   const vuv = (valor_unitario_variavel === undefined || valor_unitario_variavel === null || valor_unitario_variavel === '')
@@ -805,7 +802,6 @@ app.put('/api/funcionarios/:id', (req, res) => {
        nome = COALESCE(?, nome),
        usuario = COALESCE(?, usuario),
        cargo = COALESCE(?, cargo),
-       unidade = COALESCE(?, unidade),
        equipe = COALESCE(?, equipe),
        valor_meta_mensal = COALESCE(?, valor_meta_mensal),
        valor_unitario_variavel = COALESCE(?, valor_unitario_variavel)
@@ -814,7 +810,6 @@ app.put('/api/funcionarios/:id', (req, res) => {
     nome || null,
     usuario ? usuario.toLowerCase() : null,
     cargo || null,
-    unidade || null,
     equipe || null,
     vmm,
     vuv,
@@ -1224,7 +1219,7 @@ function normalizarFiltroTexto(input) {
   return v || null;
 }
 
-function montarPlanoDeducaoLote({ cargo, unidade, equipe, periodo, mes_ano, percentual }) {
+function montarPlanoDeducaoLote({ cargo, equipe, periodo, mes_ano, percentual }) {
   const pct = Number(percentual);
   if (!pct || Number.isNaN(pct) || pct <= 0) {
     throw new Error('percentual é obrigatório e deve ser > 0');
@@ -1249,7 +1244,6 @@ function montarPlanoDeducaoLote({ cargo, unidade, equipe, periodo, mes_ano, perc
       f.nome AS funcionario_nome,
       f.usuario AS funcionario_usuario,
       f.cargo AS funcionario_cargo,
-      f.unidade AS funcionario_unidade,
       f.equipe AS funcionario_equipe
     FROM metas m
     JOIN funcionarios f ON f.id = m.funcionario_id
@@ -1258,11 +1252,9 @@ function montarPlanoDeducaoLote({ cargo, unidade, equipe, periodo, mes_ano, perc
   const params = [];
 
   const cargoNorm = normalizarFiltroTexto(cargo);
-  const unidadeNorm = normalizarFiltroTexto(unidade);
   const equipeNorm = normalizarFiltroTexto(equipe);
 
   if (cargoNorm) { sql += " AND lower(COALESCE(f.cargo, '')) = lower(?)"; params.push(cargoNorm); }
-  if (unidadeNorm) { sql += " AND lower(COALESCE(f.unidade, '')) = lower(?)"; params.push(unidadeNorm); }
   if (equipeNorm) { sql += " AND lower(COALESCE(f.equipe, '')) = lower(?)"; params.push(equipeNorm); }
   if (periodoNorm) { sql += " AND strftime('%m/%Y', m.data_inicio) = ?"; params.push(periodoNorm); }
   sql += ' ORDER BY f.nome';
@@ -1314,7 +1306,6 @@ function montarPlanoDeducaoLote({ cargo, unidade, equipe, periodo, mes_ano, perc
       funcionario_nome: m.funcionario_nome,
       funcionario_usuario: m.funcionario_usuario,
       funcionario_cargo: m.funcionario_cargo,
-      funcionario_unidade: m.funcionario_unidade,
       funcionario_equipe: m.funcionario_equipe,
       meta_id: m.meta_id,
       meta_titulo: m.meta_titulo,
@@ -1338,7 +1329,6 @@ function montarPlanoDeducaoLote({ cargo, unidade, equipe, periodo, mes_ano, perc
   return {
     filtros: {
       cargo: cargoNorm,
-      unidade: unidadeNorm,
       equipe: equipeNorm,
       periodo: periodoNorm,
       mes_ano: mesAnoNorm,
