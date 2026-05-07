@@ -1868,7 +1868,8 @@ window.fecharMeta = id => {
       await api(`/api/metas/${id}/fechar`, { method: 'POST', body: JSON.stringify({
         observacao: document.getElementById('c-obs').value,
       })});
-      closeDrawer(); toast('Meta fechada'); loadMetas(); loadDashboard();
+      closeDrawer(); toast('Meta fechada e fechamento registrado'); loadMetas(); loadDashboard();
+      if (canViewPage('fechamento')) loadFechamento();
     } catch (e) { toast(e.message, 'error'); }
   };
 };

@@ -355,7 +355,9 @@ function resolverMesOffsetPorMesAno(metaId, mesAno) {
 }
 
 function calcularResultado(meta) {
-  const pct = meta.valor_atual / meta.valor_inicial;
+  const alvo = Number(meta.alvo_total ?? meta.valor_inicial) || 0;
+  const saldo = Number(meta.saldo_total ?? meta.valor_atual) || 0;
+  const pct = alvo > 0 ? saldo / alvo : 0;
   if (pct >= 1) return 'atingida';
   if (pct >= 0.6) return 'parcial';
   return 'nao_atingida';
@@ -1096,7 +1098,15 @@ app.delete('/api/metas/:id', (req, res) => {
 
 // Fechamento da meta (a cada 3 meses)
 app.post('/api/metas/:id/fechar', (req, res) => {
-  const meta = db.prepare('SELECT * FROM metas WHERE id = ?').get(req.params.id);
+  const meta = db.prepare(`
+    SELECT m.*, f.nome AS funcionario_nome, f.usuario AS funcionario_usuario, f.cargo AS funcionario_cargo,
+           (SELECT COALESCE(SUM(d.valor),0)          FROM deducoes d        WHERE d.meta_id = m.id) AS total_deduzido_meta,
+           (SELECT COALESCE(SUM(d.valor_variavel),0) FROM deducoes d        WHERE d.meta_id = m.id) AS total_deduzido_variavel_meta,
+           (SELECT COALESCE(SUM(mx.valor_total),0)   FROM meta_melhorias mx WHERE mx.meta_id = m.id) AS total_variavel_meta
+    FROM metas m
+    JOIN funcionarios f ON f.id = m.funcionario_id
+    WHERE m.id = ?
+  `).get(req.params.id);
   if (!meta) return res.status(404).json({ error: 'Meta não encontrada' });
   if (metaJaTeveFechamento(meta)) {
     return res.status(400).json({
@@ -1106,12 +1116,73 @@ app.post('/api/metas/:id/fechar', (req, res) => {
   if (meta.status === 'fechada') return res.status(400).json({ error: 'Meta já está fechada' });
 
   const { observacao } = req.body || {};
+  const dataInicio = String(meta.data_inicio || '').slice(0, 10);
+  const dataFim = String(meta.data_fim || '').slice(0, 10);
+  const dataInicioObj = new Date(`${dataInicio}T00:00:00`);
+  const ano = Number.isNaN(dataInicioObj.getTime()) ? Number(dataInicio.slice(0, 4)) : dataInicioObj.getFullYear();
+  const mesInicial = Number.isNaN(dataInicioObj.getTime()) ? Number(dataInicio.slice(5, 7)) : dataInicioObj.getMonth() + 1;
+  const totalVariavel = Number(meta.total_variavel_meta || 0);
+  const totalDeduzidoVariavel = Number(meta.total_deduzido_variavel_meta || 0);
+  meta.alvo_total = Number(meta.valor_inicial || 0) + totalVariavel;
+  meta.saldo_total = Number(meta.valor_atual || 0) + Math.max(0, totalVariavel - totalDeduzidoVariavel);
+  meta.deduzido_total = Number(meta.total_deduzido_meta || 0);
   const resultado = calcularResultado(meta);
-  db.prepare(`
-    UPDATE metas SET status='fechada', resultado=?, data_fechamento=datetime('now','localtime'), observacao_fechamento=?
-    WHERE id=?
-  `).run(resultado, observacao || null, req.params.id);
-  res.json(db.prepare('SELECT * FROM metas WHERE id = ?').get(req.params.id));
+  const tx = db.transaction(() => {
+    db.prepare(`
+      UPDATE metas SET status='fechada', resultado=?, data_fechamento=datetime('now','localtime'), observacao_fechamento=?
+      WHERE id=?
+    `).run(resultado, observacao || null, req.params.id);
+
+    const info = db.prepare(`
+      INSERT INTO fechamentos
+        (ano, mes_inicial, data_inicio, data_fim, total_funcionarios, total_metas,
+         total_alvo, total_deduzido, total_a_receber, observacao)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      ano,
+      mesInicial,
+      dataInicio,
+      dataFim,
+      1,
+      1,
+      meta.alvo_total,
+      meta.deduzido_total,
+      meta.saldo_total,
+      observacao || `Fechamento individual da meta ${meta.titulo}`
+    );
+    const fechamentoId = info.lastInsertRowid;
+    const nDed = db.prepare('SELECT COUNT(*) c FROM deducoes WHERE meta_id = ?').get(meta.id).c;
+
+    db.prepare(`
+      INSERT INTO fechamento_itens
+        (fechamento_id, meta_id, funcionario_id, funcionario_nome, funcionario_usuario, funcionario_cargo,
+         meta_titulo, meta_descricao, data_inicio, data_fim,
+         valor_inicial, valor_atual, valor_deduzido, total_deducoes, resultado)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      fechamentoId,
+      meta.id,
+      meta.funcionario_id,
+      meta.funcionario_nome,
+      meta.funcionario_usuario,
+      meta.funcionario_cargo,
+      meta.titulo,
+      meta.descricao,
+      meta.data_inicio,
+      meta.data_fim,
+      meta.alvo_total,
+      meta.saldo_total,
+      meta.deduzido_total,
+      nDed,
+      resultado
+    );
+    return fechamentoId;
+  });
+  const fechamentoId = tx();
+  res.json({
+    ...db.prepare('SELECT * FROM metas WHERE id = ?').get(req.params.id),
+    fechamento_id: fechamentoId,
+  });
 });
 
 // Reabrir meta
