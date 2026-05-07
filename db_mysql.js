@@ -257,6 +257,42 @@ try {
 
 query("INSERT IGNORE INTO configuracoes (chave, valor) VALUES ('tipo_meta_periodo', 'trimestral')");
 
+// Migração única: separa meta variável dos valores em meta_meses (ANTES, era somada).
+try {
+  const flag = query("SELECT 1 AS ok FROM configuracoes WHERE chave = 'migracao_separar_variavel_v1' LIMIT 1");
+  const aplicada = Array.isArray(flag) && flag.length > 0;
+  if (!aplicada) {
+    query(`
+      UPDATE meta_meses mm
+      LEFT JOIN (
+        SELECT meta_id, mes_offset, COALESCE(SUM(valor_total), 0) AS soma_var
+        FROM meta_melhorias
+        GROUP BY meta_id, mes_offset
+      ) mv ON mv.meta_id = mm.meta_id AND mv.mes_offset = mm.mes_offset
+      SET
+        mm.valor_inicial = GREATEST(0, mm.valor_inicial - COALESCE(mv.soma_var, 0)),
+        mm.valor_atual   = GREATEST(0, mm.valor_atual   - COALESCE(mv.soma_var, 0))
+      WHERE mv.soma_var IS NOT NULL AND mv.soma_var > 0
+    `);
+    query(`
+      UPDATE metas m
+      JOIN (
+        SELECT meta_id,
+               COALESCE(SUM(valor_inicial), 0) AS vi,
+               COALESCE(SUM(valor_atual), 0)   AS va
+        FROM meta_meses
+        GROUP BY meta_id
+      ) s ON s.meta_id = m.id
+      SET m.valor_inicial = s.vi,
+          m.valor_atual   = s.va
+    `);
+    query("INSERT INTO configuracoes (chave, valor) VALUES ('migracao_separar_variavel_v1', 'ok')");
+    console.log('🔧 Migração aplicada: meta variável removida de meta_meses (separada da meta fixa).');
+  }
+} catch (e) {
+  console.warn('Migração separar variável:', e.message);
+}
+
 try {
   const metasSemMeses = query(`
     SELECT m.id, m.data_inicio, m.valor_inicial, m.valor_atual
