@@ -186,7 +186,7 @@ function routeNeedsGestor(req) {
   if (p === '/metas/lote' && req.method === 'POST') return true;
   if (/^\/metas\/\d+$/.test(p) && (req.method === 'PUT' || req.method === 'DELETE')) return true;
   if (/^\/metas\/\d+\/(melhorias|variaveis)$/.test(p) && req.method === 'POST') return true;
-  if (/^\/meta-variaveis\/\d+$/.test(p) && req.method === 'PUT') return true;
+  if (/^\/meta-variaveis\/\d+$/.test(p) && (req.method === 'PUT' || req.method === 'DELETE')) return true;
   if (/^\/metas\/\d+\/(fechar|reabrir)$/.test(p) && req.method === 'POST') return true;
   if (/^\/deducoes\/\d+$/.test(p) && req.method === 'DELETE') return true;
   if (p === '/fechamentos' && req.method === 'POST') return true;
@@ -239,7 +239,7 @@ function permissionKeyForRoute(req) {
   if (/^\/metas\/\d+$/.test(p) && req.method === 'PUT') return 'meta_gerar';
   if (/^\/metas\/\d+$/.test(p) && req.method === 'DELETE') return 'meta_excluir';
   if (/^\/metas\/\d+\/(melhorias|variaveis)$/.test(p) && req.method === 'POST') return 'meta_gerar';
-  if (/^\/meta-variaveis\/\d+$/.test(p) && req.method === 'PUT') return 'meta_gerar';
+  if (/^\/meta-variaveis\/\d+$/.test(p) && (req.method === 'PUT' || req.method === 'DELETE')) return 'meta_gerar';
   if (/^\/metas\/\d+\/deducoes$/.test(p) && req.method === 'POST') return 'deducao_gerar';
   if (p === '/deducoes/lote/preview' && req.method === 'POST') return 'deducao_gerar';
   if (p === '/deducoes/lote/aplicar' && req.method === 'POST') return 'deducao_gerar';
@@ -1726,9 +1726,49 @@ function atualizarVariavelMeta(req, res) {
   });
 }
 
+function excluirVariavelMeta(req, res) {
+  const melhoriaId = Number(req.params.id);
+  const row = db.prepare('SELECT * FROM meta_melhorias WHERE id = ?').get(melhoriaId);
+  if (!row) return res.status(404).json({ error: 'Lançamento de variável não encontrado' });
+
+  const meta = db.prepare('SELECT * FROM metas WHERE id = ?').get(row.meta_id);
+  if (!meta) return res.status(404).json({ error: 'Meta não encontrada' });
+  if (meta.status !== 'aberta') {
+    return res.status(400).json({ error: 'Só é possível excluir variável em metas abertas' });
+  }
+  if (metaJaTeveFechamento(meta)) {
+    return res.status(400).json({
+      error: 'Esta meta já possui fechamento executado. Remova o fechamento atual para poder editar ou reabrir a meta.',
+    });
+  }
+
+  const mesOffset = Number(row.mes_offset);
+  const totalVariavelMes = totalVariavelNoMes(meta.id, mesOffset);
+  const totalDeduzidoVariavelMes = totalVariavelDeduzidaNoMes(meta.id, mesOffset);
+  const saldoAposExclusao = Math.round((totalVariavelMes - Number(row.valor_total || 0) - totalDeduzidoVariavelMes) * 100) / 100;
+  if (saldoAposExclusao < 0) {
+    return res.status(400).json({
+      error: 'Não é possível excluir este lançamento porque ele já foi consumido por deduções da meta variável neste mês.',
+    });
+  }
+
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM meta_melhorias WHERE id = ?').run(melhoriaId);
+    sincronizarTotaisMeta(meta.id);
+  });
+  tx();
+
+  res.json({
+    ok: true,
+    removida: row,
+    meta: db.prepare('SELECT * FROM metas WHERE id = ?').get(meta.id),
+  });
+}
+
 app.post('/api/metas/:id/variaveis', registrarVariavelMeta);
 app.post('/api/metas/:id/melhorias', registrarVariavelMeta);
 app.put('/api/meta-variaveis/:id', atualizarVariavelMeta);
+app.delete('/api/meta-variaveis/:id', excluirVariavelMeta);
 
 // Listar todas deduções
 app.get('/api/deducoes', (req, res) => {
